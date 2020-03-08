@@ -1,0 +1,22 @@
+[package]
+name = "rust-bin-template" # CHANGEME
+version = "0.1.0"
+authors = ["Dawid Ciężarkiewicz <dpc@dpc.pw>"] # CHANGEME
+edition = "2018"
+readme = "README.md"
+description = "A template for Rust programs"
+
+# CHANGEME
+documentation = "https://docs.rs/rust-bin-template"
+repository = "https://github.com/dpc/rust-bin-template"
+homepage = "https://github.com/dpc/rust-bin-template"
+keywords = ["template", "cli", "bin"]
+license = "MPL-2.0 OR MIT OR Apache-2.0"
+
+# See more keys and thair definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+structopt = "0.3"
+env_logger = { version = "0.7.1", default-features = false, features = ["humantime"]}
+log = "0.4"
+anyhow = "1.0.26"
