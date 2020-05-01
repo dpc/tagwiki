@@ -1,15 +1,14 @@
 [package]
-name = "rust-bin-template" # CHANGEME
+name = "tagwiki"
 version = "0.1.0"
-authors = ["Dawid Ciężarkiewicz <dpc@dpc.pw>"] # CHANGEME
+authors = ["Dawid Ciężarkiewicz <dpc@dpc.pw>"]
 edition = "2018"
 readme = "README.md"
 description = "A template for Rust programs"
 
-# CHANGEME
-documentation = "https://docs.rs/rust-bin-template"
-repository = "https://github.com/dpc/rust-bin-template"
-homepage = "https://github.com/dpc/rust-bin-template"
+documentation = "https://docs.rs/tagwiki"
+repository = "https://github.com/dpc/tagwiki"
+homepage = "https://github.com/dpc/tagwiki"
 keywords = ["template", "cli", "bin"]
 license = "MPL-2.0 OR MIT OR Apache-2.0"
 
@@ -20,3 +19,13 @@ structopt = "0.3"
 env_logger = { version = "0.7.1", default-features = false, features = ["humantime"]}
 log = "0.4"
 anyhow = "1.0.26"
+pulldown-cmark = "0.7.1"
+tokio = { version = "0.2", features = ["macros"] }
+warp = "0.2"
+rand = "0.6"
+regex = "1.3.7"
+lazy_static = "*"
+blake2 = "*"
+digest = "*"
+hex = "*"
+walkdir = "*"
