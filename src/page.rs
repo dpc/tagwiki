@@ -1,4 +1,4 @@
-mod store;
+pub mod store;
 
 use lazy_static::lazy_static;
 pub use store::{InMemoryStore, Store, StoreMut};
@@ -8,6 +8,7 @@ use digest::Digest;
 
 pub type Id = String;
 pub type Tag = String;
+pub type TagRef<'a> = &'a str;
 
 const TAGWIKI_PAGE_ID_KEY: &str = "tagwiki-page-id";
 

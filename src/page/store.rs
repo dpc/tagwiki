@@ -1,46 +1,125 @@
 use crate::page::{self, Id};
 use anyhow::{format_err, Result};
+use async_trait::async_trait;
 use std::collections::HashMap;
-// use std::sync::{Arc, Mutex};
+use std::sync;
 
 pub mod fs;
+pub use fs::FsStore;
 
+#[async_trait]
 pub trait Store {
-    fn get(&self, id: Id) -> Result<page::Parsed>;
-    fn put(&self, page: &page::Parsed) -> Result<()>;
-    fn delete(&self, id: Id) -> Result<()>;
-    fn iter<'s>(&'s self) -> Result<Box<dyn Iterator<Item = Id> + 's>>;
+    async fn get(&self, id: Id) -> Result<page::Parsed>;
+    async fn put(&self, page: &page::Parsed) -> Result<()>;
+    async fn delete(&self, id: Id) -> Result<()>;
+    async fn iter<'s>(&'s self) -> Result<Box<dyn Iterator<Item = Id> + 's>>;
 }
 
+#[async_trait]
 pub trait StoreMut {
-    fn get(&mut self, id: Id) -> Result<page::Parsed>;
-    fn put(&mut self, page: &page::Parsed) -> Result<()>;
-    fn delete(&mut self, id: Id) -> Result<()>;
-    fn iter<'s>(&'s mut self) -> Result<Box<dyn Iterator<Item = Id> + 's>>;
+    async fn get(&self, id: Id) -> Result<page::Parsed>;
+    async fn put(&mut self, page: &page::Parsed) -> Result<()>;
+    async fn delete(&mut self, id: Id) -> Result<()>;
+    async fn iter<'s>(&'s self) -> Result<Box<dyn Iterator<Item = Id> + 's>>;
 }
 
+#[async_trait]
 impl<T> StoreMut for T
 where
-    T: Store,
+    T: Store + Send + Sync,
 {
-    fn get(&mut self, id: Id) -> Result<page::Parsed> {
-        Store::get(self, id)
+    async fn get(&self, id: Id) -> Result<page::Parsed> {
+        Store::get(self, id).await
     }
 
-    fn put(&mut self, page: &page::Parsed) -> Result<()> {
-        Store::put(self, page)
+    async fn put(&mut self, page: &page::Parsed) -> Result<()> {
+        Store::put(self, page).await
     }
 
-    fn delete(&mut self, id: Id) -> Result<()> {
-        Store::delete(self, id)
+    async fn delete(&mut self, id: Id) -> Result<()> {
+        Store::delete(self, id).await
     }
 
-    fn iter<'s>(&'s mut self) -> Result<Box<dyn Iterator<Item = Id> + 's>> {
-        Store::iter(self)
+    async fn iter<'s>(&'s self) -> Result<Box<dyn Iterator<Item = Id> + 's>> {
+        Store::iter(self).await
     }
 }
 
-// impl Store for Arc<Mutex<InMemoryStore>> {}
+#[async_trait]
+impl StoreMut for Box<dyn StoreMut + Send + Sync> {
+    async fn get(&self, id: Id) -> Result<page::Parsed> {
+        (**self).get(id).await
+    }
+
+    async fn put(&mut self, page: &page::Parsed) -> Result<()> {
+        (**self).put(page).await
+    }
+
+    async fn delete(&mut self, id: Id) -> Result<()> {
+        (**self).delete(id).await
+    }
+
+    async fn iter<'s>(&'s self) -> Result<Box<dyn Iterator<Item = Id> + 's>> {
+        (**self).iter().await
+    }
+} /*
+  impl<T> Store for sync::Arc<sync::Mutex<T>>
+  where
+      T: StoreMut,
+  {
+      fn get(&self, id: Id) -> Result<page::Parsed> {
+          self.lock().expect("locking").get(id)
+      }
+
+      fn put(&self, page: &page::Parsed) -> Result<()> {
+          self.lock().expect("locking").put(page)
+      }
+
+      fn delete(&self, id: Id) -> Result<()> {
+          self.lock().expect("locking").delete(id)
+      }
+
+      fn iter<'s>(&'s self) -> Result<Box<dyn Iterator<Item = Id> + 's>> {
+          Ok(Box::new(
+              self.lock()
+                  .expect("locking")
+                  .iter()?
+                  .collect::<Vec<_>>()
+                  .into_iter(),
+          ))
+      }
+  }
+  */
+
+#[async_trait]
+impl<T> Store for sync::Arc<tokio::sync::RwLock<T>>
+where
+    T: StoreMut + Sync + Send,
+{
+    async fn get(&self, id: Id) -> Result<page::Parsed> {
+        self.read().await.get(id).await
+    }
+
+    async fn put(&self, page: &page::Parsed) -> Result<()> {
+        self.write().await.put(page).await
+    }
+
+    async fn delete(&self, id: Id) -> Result<()> {
+        self.write().await.delete(id).await
+    }
+
+    async fn iter<'s>(&'s self) -> Result<Box<dyn Iterator<Item = Id> + 's>> {
+        // TODO: fix that `collect`
+        Ok(Box::new(
+            self.write()
+                .await
+                .iter()
+                .await?
+                .collect::<Vec<_>>()
+                .into_iter(),
+        ))
+    }
+} // impl Store for Arc<Mutex<InMemoryStore>> {}
 
 #[derive(Debug, Default)]
 pub struct InMemoryStore {
@@ -61,8 +140,9 @@ impl InMemoryStore {
     */
 }
 
+#[async_trait]
 impl StoreMut for InMemoryStore {
-    fn get(&mut self, id: Id) -> Result<page::Parsed> {
+    async fn get(&self, id: Id) -> Result<page::Parsed> {
         Ok(self
             .page_by_id
             .get(&id)
@@ -70,7 +150,7 @@ impl StoreMut for InMemoryStore {
             .ok_or_else(|| format_err!("Not found"))?)
     }
 
-    fn put(&mut self, page: &page::Parsed) -> Result<()> {
+    async fn put(&mut self, page: &page::Parsed) -> Result<()> {
         *self
             .page_by_id
             .get_mut(&page.headers.id)
@@ -79,13 +159,13 @@ impl StoreMut for InMemoryStore {
         Ok(())
     }
 
-    fn delete(&mut self, id: Id) -> Result<()> {
+    async fn delete(&mut self, id: Id) -> Result<()> {
         self.page_by_id
             .remove(&id)
             .ok_or_else(|| format_err!("Not found"))?;
         Ok(())
     }
-    fn iter<'s>(&'s mut self) -> Result<Box<dyn Iterator<Item = Id> + 's>> {
+    async fn iter<'s>(&'s self) -> Result<Box<dyn Iterator<Item = Id> + 's>> {
         Ok(Box::new(self.page_by_id.keys().cloned()))
     }
 }

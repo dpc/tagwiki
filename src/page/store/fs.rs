@@ -1,5 +1,6 @@
 use crate::page::{self, Id};
-use anyhow::{format_err, Result};
+use anyhow::{format_err, Context, Result};
+use async_trait::async_trait;
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::io::Read;
@@ -19,7 +20,7 @@ impl FsStore {
             ..Self::default()
         };
         for entry in walkdir::WalkDir::new(&s.root_path) {
-            match Self::try_reading_page_from_entry(&s.root_path, entry) {
+            match Self::try_reading_page_from_entry_res(entry) {
                 Ok(Some((page, path))) => {
                     s.id_to_path.insert(page.headers.id.clone(), path.clone());
                     s.path_to_page.insert(path, page);
@@ -62,11 +63,17 @@ impl FsStore {
         path
     }
 
-    fn try_reading_page_from_entry(
-        root_path: &Path,
+    fn try_reading_page_from_entry_res(
         entry: walkdir::Result<walkdir::DirEntry>,
     ) -> Result<Option<(page::Parsed, PathBuf)>> {
         let entry = entry?;
+        Self::try_reading_page_from_entry(&entry)
+            .with_context(|| format!("While reading path: {}", entry.path().display()))
+    }
+
+    fn try_reading_page_from_entry(
+        entry: &walkdir::DirEntry,
+    ) -> Result<Option<(page::Parsed, PathBuf)>> {
         if !entry.file_type().is_file() {
             return Ok(None);
         }
@@ -75,7 +82,7 @@ impl FsStore {
             return Ok(None);
         }
 
-        let file = std::fs::File::open(PathBuf::from(root_path).join(entry.path()))?;
+        let file = std::fs::File::open(PathBuf::from(entry.path()))?;
         let mut reader = std::io::BufReader::new(file);
         let mut source = page::Source::default();
         reader.read_to_string(&mut source.0)?;
@@ -91,15 +98,16 @@ impl FsStore {
     }
 }
 
+#[async_trait]
 impl page::StoreMut for FsStore {
-    fn get(&mut self, id: Id) -> Result<page::Parsed> {
+    async fn get(&self, id: Id) -> Result<page::Parsed> {
         self.id_to_path
             .get(&id)
             .and_then(|path| self.path_to_page.get(path).cloned())
             .ok_or_else(|| format_err!("Not found"))
     }
 
-    fn put(&mut self, page: &page::Parsed) -> Result<()> {
+    async fn put(&mut self, page: &page::Parsed) -> Result<()> {
         let path = if let Some(path) = self.id_to_path.get(&page.headers.id) {
             path.clone()
         } else {
@@ -113,7 +121,7 @@ impl page::StoreMut for FsStore {
         Ok(())
     }
 
-    fn delete(&mut self, id: Id) -> Result<()> {
+    async fn delete(&mut self, id: Id) -> Result<()> {
         let path = self
             .id_to_path
             .get(&id)
@@ -125,7 +133,7 @@ impl page::StoreMut for FsStore {
         Ok(())
     }
 
-    fn iter<'s>(&'s mut self) -> Result<Box<dyn Iterator<Item = Id> + 's>> {
+    async fn iter<'s>(&'s self) -> Result<Box<dyn Iterator<Item = Id> + 's>> {
         Ok(Box::new(self.id_to_path.keys().cloned()))
     }
 }
