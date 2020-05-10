@@ -127,17 +127,10 @@ pub struct InMemoryStore {
 }
 
 impl InMemoryStore {
+    #[allow(unused)]
     pub fn new() -> Self {
         Default::default()
     }
-
-    /*
-    fn inner(&self) -> Result<std::sync::MutexGuard<InMemoryStoreInner>> {
-        self.inner
-            .lock()
-            .map_err(|e| format_err!("Lock failed {}", e))
-    }
-    */
 }
 
 #[async_trait]

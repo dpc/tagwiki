@@ -20,7 +20,7 @@ impl FsStore {
             ..Self::default()
         };
         for entry in walkdir::WalkDir::new(&s.root_path) {
-            match Self::try_reading_page_from_entry_res(entry) {
+            match s.try_reading_page_from_entry_res(entry) {
                 Ok(Some((page, path))) => {
                     s.id_to_path.insert(page.headers.id.clone(), path.clone());
                     s.path_to_page.insert(path, page);
@@ -64,14 +64,16 @@ impl FsStore {
     }
 
     fn try_reading_page_from_entry_res(
+        &self,
         entry: walkdir::Result<walkdir::DirEntry>,
     ) -> Result<Option<(page::Parsed, PathBuf)>> {
         let entry = entry?;
-        Self::try_reading_page_from_entry(&entry)
+        self.try_reading_page_from_entry(&entry)
             .with_context(|| format!("While reading path: {}", entry.path().display()))
     }
 
     fn try_reading_page_from_entry(
+        &self,
         entry: &walkdir::DirEntry,
     ) -> Result<Option<(page::Parsed, PathBuf)>> {
         if !entry.file_type().is_file() {
@@ -88,13 +90,38 @@ impl FsStore {
         reader.read_to_string(&mut source.0)?;
 
         Ok(Some((
-            page::Parsed::from_markdown(source),
-            entry.path().to_owned(),
+            page::Parsed::from_full_source(source),
+            entry
+                .path()
+                .strip_prefix(&self.root_path)
+                .expect("correct prefix")
+                .to_owned(),
         )))
     }
 
-    fn write_page_to_file(&self, _rel_path: &Path, _page: &page::Parsed) -> Result<()> {
-        todo!();
+    async fn write_page_to_file(&self, rel_path: &Path, page: &page::Parsed) -> Result<()> {
+        let page = page.clone();
+        use std::io::Write;
+        let path = self.root_path.join(rel_path);
+        let tmp_path = path.with_extension(format!("md.tmp.{}", crate::util::random_string(8)));
+
+        tokio::task::spawn_blocking(move || -> Result<()> {
+            let mut file = std::fs::File::create(&tmp_path)?;
+            file.write_all(b"<!---\n")?;
+            file.write_all(page.headers.all.as_bytes())?;
+            file.write_all(b"\n-->\n")?;
+            file.write_all(page.source_body.as_bytes())?;
+
+            file.flush()?;
+            file.sync_data()?;
+            drop(file);
+
+            std::fs::rename(tmp_path, path)?;
+            Ok(())
+        })
+        .await??;
+
+        Ok(())
     }
 }
 
@@ -114,7 +141,7 @@ impl page::StoreMut for FsStore {
             self.title_to_new_rel_path(&page.title)
         };
 
-        self.write_page_to_file(&path, &page)?;
+        self.write_page_to_file(&path, &page).await?;
         self.id_to_path
             .insert(page.headers.id.clone(), path.clone());
         self.path_to_page.insert(path, page.clone());

@@ -1,9 +1,10 @@
 pub mod store;
 
+#[allow(unused)]
+use anyhow::Result;
 use lazy_static::lazy_static;
 pub use store::{InMemoryStore, Store, StoreMut};
 
-use anyhow::Result;
 use digest::Digest;
 
 pub type Id = String;
@@ -18,6 +19,7 @@ pub struct Source(String);
 #[derive(Debug, Default, Clone)]
 pub struct Parsed {
     pub source: Source,
+    pub source_body: String,
     pub html: String,
     pub headers: Headers,
     pub tags: Vec<Tag>,
@@ -36,7 +38,9 @@ fn split_headers_and_body(source: &Source) -> (&str, &str) {
 
     if let Some(cap) = RE.captures_iter(&source.0).next() {
         (
-            cap.get(1).expect("be there").as_str(),
+            // important: trimming headers, prevent them from accumulating newlines in the output
+            // during rewrites
+            cap.get(1).expect("be there").as_str().trim(),
             cap.get(2).expect("be there").as_str(),
         )
     } else {
@@ -92,24 +96,50 @@ impl Headers {
             }
         }
     }
+
+    fn to_markdown_string(&self) -> String {
+        "<!---\n".to_string() + &self.all + "\n-->\n"
+    }
+}
+
+fn parse_tags(body: &str) -> Vec<String> {
+    lazy_static! {
+        static ref RE: regex::Regex = regex::Regex::new(r"#([a-zA-Z0-9]+)").expect("correct regex");
+    }
+
+    RE.captures_iter(&body)
+        .map(|m| m.get(1).expect("a value").as_str().to_lowercase())
+        .collect()
 }
 
 impl Parsed {
-    fn from_markdown(source: Source) -> Parsed {
+    fn from_full_source(source: Source) -> Parsed {
         let (headers, body) = split_headers_and_body(&source);
         let headers = Headers::parse(headers, &source);
 
-        let parser = pulldown_cmark::Parser::new(body);
+        Self::from_headers_and_body(headers, body.to_owned())
+    }
+
+    fn from_headers_and_body(headers: Headers, body: String) -> Parsed {
+        let source = headers.to_markdown_string() + &body;
+        let parser = pulldown_cmark::Parser::new(&body);
         let mut html_output = String::new();
         pulldown_cmark::html::push_html(&mut html_output, parser);
+
+        let tags = parse_tags(&body);
 
         Parsed {
             headers,
             html: html_output,
-            source,
-            tags: vec!["TODO".into()],
+            source_body: body,
+            source: Source(source),
+            tags,
             title: "TODO".into(),
         }
+    }
+
+    pub fn with_new_source_body(&self, new_body_source: &str) -> Self {
+        Self::from_headers_and_body(self.headers.clone(), new_body_source.to_owned())
     }
 }
 
@@ -137,7 +167,7 @@ c: d "#
 
 #[test]
 fn parse_markdown_metadata_test() -> Result<()> {
-    let page = Parsed::from_markdown(Source(
+    let page = Parsed::from_full_source(Source(
         r#"
 
 <!---
@@ -157,10 +187,5 @@ tagwiki-id: 123
 
     println!("{:#?}", page);
     assert_eq!(page.headers.id, "xyz");
-    Ok(())
-}
-
-fn add_to_store(_store: &impl Store, source: Source) -> Result<()> {
-    let _page = Parsed::from_markdown(source);
     Ok(())
 }

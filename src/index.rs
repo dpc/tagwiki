@@ -59,9 +59,14 @@ impl<T> Index<T> {
     pub fn find(&self, tags: &[TagRef]) -> FindResults {
         let mut matching_pages: Vec<String> = vec![];
         let mut matching_tags: Vec<String> = vec![];
+        let mut already_tried_tags = HashSet::new();
         for tag in tags {
+            if already_tried_tags.contains(tag) {
+                continue;
+            }
+            already_tried_tags.insert(tag);
             if matching_tags.is_empty() {
-                if let Some(ids) = dbg!(&self.page_ids_by_tag).get(*tag) {
+                if let Some(ids) = &self.page_ids_by_tag.get(*tag) {
                     matching_pages = ids.iter().map(|id| id.to_owned()).collect();
                     matching_tags.push(tag.to_string())
                 } else {
@@ -98,7 +103,7 @@ impl<T> Index<T> {
     }
 
     fn add_data_for_page(&mut self, page: &page::Parsed) {
-        for tag in dbg!(&page.tags) {
+        for tag in &page.tags {
             self.page_ids_by_tag
                 .entry(tag.clone())
                 .or_default()
