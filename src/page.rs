@@ -3,6 +3,7 @@ pub mod store;
 #[allow(unused)]
 use anyhow::Result;
 use lazy_static::lazy_static;
+use std::collections::HashSet;
 pub use store::{InMemoryStore, Store, StoreMut};
 
 use digest::Digest;
@@ -23,7 +24,7 @@ pub struct Parsed {
     pub source_body: String,
     pub html: String,
     pub headers: Headers,
-    pub tags: Vec<Tag>,
+    pub tags: HashSet<Tag>,
     pub title: String,
 }
 
@@ -165,7 +166,7 @@ impl Parsed {
             html: html_output,
             source_body: body,
             source: Source(source),
-            tags,
+            tags: tags.into_iter().collect(),
             title,
         }
     }

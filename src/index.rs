@@ -6,30 +6,44 @@ use async_trait::async_trait;
 use log::info;
 use std::collections::{HashMap, HashSet};
 
+/// Indexing wrapper over `page::Store`
+///
+/// `Index` keeps track of page data neccessary
+/// to quickly look them up by a tag query.
 #[derive(Default)]
 pub struct Index<T> {
     page_ids_by_tag: HashMap<String, HashSet<Id>>,
-    tags_by_page_id: HashMap<Id, Vec<Tag>>,
+    tags_by_page_id: HashMap<Id, HashSet<Tag>>,
     title_by_page_id: HashMap<Id, String>,
     store: T,
 }
 
+/// Basic page info
 #[derive(Debug, Clone)]
 pub struct PageInfo {
     pub id: Id,
     pub title: String,
 }
 
+/// Results of tag query lookup
 #[derive(Default, Debug, Clone)]
 pub struct FindResults {
     pub matching_pages: Vec<PageInfo>,
-    pub matching_tags: Vec<page::Tag>,
+    pub matching_tags: Vec<Tag>,
 }
 
 impl FindResults {
     fn empty() -> Self {
         Self::default()
     }
+}
+
+/// More compact (post-processed) `FindResults`
+pub struct CompactResults {
+    // all tags that were not already filtered on
+    pub tags: Vec<(Tag, usize)>,
+    // all pages that can't be reached by one of the `tags`
+    pub pages: Vec<PageInfo>,
 }
 
 impl<T> Index<T>
@@ -49,6 +63,7 @@ where
         Ok(s)
     }
 
+    /// Index the inner `Store`
     async fn index_inner(&mut self) -> Result<()> {
         let mut count = 0;
         let ids = self.store.iter().await?.collect::<Vec<page::Id>>();
@@ -60,9 +75,44 @@ where
         info!("Indexed {} pages", count);
         Ok(())
     }
+
+    /// Compact the results to a shorter form
+    pub fn compact_results(&self, results: FindResults) -> CompactResults {
+        let matching_tags: HashSet<String> = results.matching_tags.iter().cloned().collect();
+        let mut unmatched_tags: HashMap<Tag, usize> = Default::default();
+        for page_info in &results.matching_pages {
+            for page_tag in &self.tags_by_page_id[&page_info.id] {
+                if !matching_tags.contains(page_tag.as_str()) {
+                    *unmatched_tags.entry(page_tag.to_owned()).or_default() += 1;
+                }
+            }
+        }
+
+        let unmatched_tags_set: HashSet<Tag> = unmatched_tags.keys().cloned().collect();
+
+        let mut pages: Vec<PageInfo> = results
+            .matching_pages
+            .into_iter()
+            .filter(|page_info| {
+                unmatched_tags_set
+                    .intersection(&self.tags_by_page_id[&page_info.id])
+                    .next()
+                    .is_none()
+            })
+            .collect();
+
+        pages.sort_by(|a, b| a.title.cmp(&b.title));
+
+        let mut tags: Vec<_> = unmatched_tags.into_iter().collect();
+
+        tags.sort_by(|a, b| a.1.cmp(&b.1).reverse().then_with(|| a.0.cmp(&b.0)));
+
+        CompactResults { tags, pages }
+    }
 }
 
 impl<T> Index<T> {
+    /// Lookup pages with a list of tags
     pub fn find(&self, tags: &[TagRef]) -> FindResults {
         let mut matching_pages: Vec<PageInfo> = vec![];
         let mut matching_tags: Vec<String> = vec![];
@@ -146,7 +196,7 @@ impl<T> Index<T> {
             .tags_by_page_id
             .get(&id)
             .cloned()
-            .unwrap_or_else(|| vec![])
+            .unwrap_or_else(|| HashSet::new())
         {
             self.page_ids_by_tag
                 .get_mut(&tag)

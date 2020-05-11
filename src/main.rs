@@ -8,7 +8,7 @@ use warp::{path::FullPath, Filter};
 
 use serde_derive::Deserialize;
 
-use page::StoreMut;
+use page::{StoreMut, Tag};
 
 /// Command line options
 mod cli;
@@ -157,7 +157,10 @@ fn render_page_view(page: &page::Parsed) -> impl RenderOnce {
     }
 }
 
-fn render_post_list(posts: impl Iterator<Item = index::PageInfo> + 'static) -> impl RenderOnce {
+fn render_post_list(
+    unmatched_tags: impl Iterator<Item = (Tag, usize)>,
+    posts: impl Iterator<Item = index::PageInfo> + 'static,
+) -> impl RenderOnce {
     owned_html! {
         div(class="pure-menu pure-menu-horizontal") {
             form(action="..", method="get", class="pure-menu-item") {
@@ -173,6 +176,11 @@ fn render_post_list(posts: impl Iterator<Item = index::PageInfo> + 'static) -> i
             }
         }
         ul {
+            @ for tag in unmatched_tags {
+                li {
+                    a(href=format!("./{}", tag.0)) : format!("{} ({})", tag.0, tag.1)
+                }
+            }
             @ for post in posts {
                 li {
                     a(href=format!("?id={}", post.id)) : post.title
@@ -358,8 +366,10 @@ async fn handle_get(
             query.edit.is_some(),
         ))))
     } else {
+        let compact_results = read.compact_results(results);
         Ok(warp_reply_from_render(render_html_page(render_post_list(
-            results.matching_pages.into_iter(),
+            compact_results.tags.into_iter(),
+            compact_results.pages.into_iter(),
         ))))
     }
 }
