@@ -1,14 +1,15 @@
-* {
-  -webkit-box-sizing: border-box;
-  -moz-box-sizing: border-box;
-  box-sizing: border-box;
-  padding: 0;
-    margin: 0;
+body {
+  max-width: 40em;
+  margin: 0 auto;
 }
 
-body {
-  background-color: #baa4a4;
-  height: 100%;
+.button-warning {
+  color: white;
+  background: rgb(223, 117, 20);
+}
+.button-green {
+  color: white;
+  background: rgb(28, 184, 65);
 }
 
 /* TOOD: make the whole form exactly fit the screen (including the buttons) */

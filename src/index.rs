@@ -8,7 +8,6 @@ use std::collections::{HashMap, HashSet};
 
 #[derive(Default)]
 pub struct Index<T> {
-    // tag -> page_ids
     page_ids_by_tag: HashMap<String, HashSet<Id>>,
     tags_by_page_id: HashMap<Id, Vec<Tag>>,
     title_by_page_id: HashMap<Id, String>,
@@ -135,11 +134,11 @@ impl<T> Index<T> {
                 .entry(tag.clone())
                 .or_default()
                 .insert(page.id().to_owned());
-            self.tags_by_page_id
-                .insert(page.id().to_owned(), page.tags.clone());
-            self.title_by_page_id
-                .insert(page.id().to_owned(), page.title.clone());
         }
+        self.tags_by_page_id
+            .insert(page.id().to_owned(), page.tags.clone());
+        self.title_by_page_id
+            .insert(page.id().to_owned(), page.title.clone());
     }
 
     fn clean_data_for_page(&mut self, id: Id) {

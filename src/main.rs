@@ -1,6 +1,6 @@
 //! tagwiki
 
-use anyhow::{bail, Result};
+use anyhow::{bail, format_err, Result};
 use log::info;
 use std::sync::Arc;
 use structopt::StructOpt;
@@ -21,8 +21,8 @@ mod index;
 mod util;
 
 use horrorshow::helper::doctype;
-use horrorshow::owned_html;
 use horrorshow::prelude::*;
+use horrorshow::{box_html, owned_html};
 
 #[derive(Debug)]
 struct RejectAnyhow(anyhow::Error);
@@ -68,44 +68,89 @@ struct GetParams {
 
 #[derive(Deserialize, Debug)]
 struct PostForm {
-    body: String,
+    body: Option<String>,
     id: Option<String>,
+    _method: Option<String>,
 }
 
-fn render_html_page(page: impl RenderOnce) -> impl RenderOnce {
-    owned_html! {
-        : doctype::HTML;
-        head {
-            link(rel="stylesheet", media="all", href="/_style.css");
-        }
-        body : page;
+impl PostForm {
+    fn get_body(&self) -> Result<&str> {
+        self.body
+            .as_deref()
+            .ok_or_else(|| format_err!("Missing body"))
     }
 }
 
-fn render_page_editing_view(page: &page::Parsed) -> impl RenderOnce {
-    let body = page.source_body.clone();
-    let id = page.id().to_owned();
+fn render_html_page(body: impl RenderOnce) -> impl RenderOnce {
     owned_html! {
-        form(action=".", method="post") {
-            input(type="submit", value="Save");
-            input(type="hidden", name="id", value=id);
-            textarea(name="body") {
-                : body
+        : doctype::HTML;
+        head {
+            link(rel="stylesheet",href="https://unpkg.com/purecss@2.0.1/build/pure-min.css",crossorigin="anonymous");
+            link(rel="stylesheet",href="https://unpkg.com/purecss@2.0.1/build/grids-responsive-min.css");
+            meta(name="viewport",content="width=device-width, initial-scale=1");
+            link(rel="stylesheet", media="all", href="/_style.css");
+        }
+        body {
+           : body
+        }
+    }
+}
+
+fn render_page_editing_view(page: Option<&page::Parsed>) -> impl RenderOnce {
+    if let Some(page) = page.as_ref() {
+        let body = page.source_body.clone();
+        let id = page.id().to_owned();
+        (box_html! {
+            form(action=".", method="post") {
+                input(type="submit", value="Save", class="pure-button pure-button-primary");
+                input(type="hidden", name="id", value=id);
+                textarea(name="body") {
+                    : body
+                }
+            }
+        }) as Box<dyn RenderBox>
+    } else {
+        box_html! {
+            form(action=".", method="post") {
+                input(type="submit", value="Save", class="pure-button pure-button-primary");
+                input(type="hidden", name="_method", value="put");
+                textarea(name="body");
             }
         }
-
     }
 }
 
 fn render_page_view(page: &page::Parsed) -> impl RenderOnce {
     let page_html = page.html.clone();
     let id = page.id().to_owned();
+    let id_copy = id.clone();
     owned_html! {
-        form(action=".", method="get") {
-            input(type="hidden", name="edit", value="true");
-            input(type="hidden", name="id", value=id);
-            button(type="submit"){
-                : "Edit"
+        div(class="pure-menu pure-menu-horizontal") {
+            form(action="..", method="get", class="pure-menu-item") {
+                button(type="submit", class="pure-button"){
+                    : "Up"
+                }
+            }
+            form(action="/", method="get", class="pure-menu-item") {
+                input(type="hidden", name="edit", value="true");
+                button(type="submit", class="pure-button button-green"){
+                    : "New"
+                }
+            }
+            form(action=".", method="get", class="pure-menu-item") {
+                input(type="hidden", name="edit", value="true");
+                input(type="hidden", name="id", value=id);
+                button(type="submit", class="pure-button pure-button-primary"){
+                    : "Edit"
+                }
+            }
+            form(action=".", method="post", class="pure-menu-item") {
+                input(type="hidden", name="edit", value="true");
+                input(type="hidden", name="id", value=id_copy);
+                input(type="hidden", name="_method", value="delete");
+                button(type="submit", class="pure-button button-warning",onclick="return confirm('Are you sure?');"){
+                    : "Delete"
+                }
             }
         }
         : Raw(page_html)
@@ -114,6 +159,19 @@ fn render_page_view(page: &page::Parsed) -> impl RenderOnce {
 
 fn render_post_list(posts: impl Iterator<Item = index::PageInfo> + 'static) -> impl RenderOnce {
     owned_html! {
+        div(class="pure-menu pure-menu-horizontal") {
+            form(action="..", method="get", class="pure-menu-item") {
+                button(type="submit", class="pure-button"){
+                    : "Up"
+                }
+            }
+            form(action="/", method="get", class="pure-menu-item") {
+                input(type="hidden", name="edit", value="true");
+                button(type="submit", class="pure-button button-green"){
+                    : "New"
+                }
+            }
+        }
         ul {
             @ for post in posts {
                 li {
@@ -143,8 +201,8 @@ async fn handle_style_css() -> std::result::Result<warp::http::Response<String>,
         .status(200)
         .header(warp::http::header::CONTENT_TYPE, "text/css")
         .body(
-            include_str!("../resources/reset.css").to_string()
-                + include_str!("../resources/style.css"),
+            // include_str!("../resources/reset.css").to_string()
+            include_str!("../resources/style.css").to_string(),
         )
         .expect("correct redirect"))
 }
@@ -154,9 +212,20 @@ async fn handle_post_wrapped(
     path: FullPath,
     form: PostForm,
 ) -> Result<Box<dyn warp::Reply>, warp::Rejection> {
-    handle_post(state, path, form)
-        .await
-        .map_err(|e| warp::reject::custom(RejectAnyhow(e)))
+    if let Some("put") = form._method.as_deref() {
+        // workaround for not being able to use `method="put"` in html forms
+        handle_put(state, path, form)
+            .await
+            .map_err(|e| warp::reject::custom(RejectAnyhow(e)))
+    } else if let Some("delete") = form._method.as_deref() {
+        handle_delete(state, path, form)
+            .await
+            .map_err(|e| warp::reject::custom(RejectAnyhow(e)))
+    } else {
+        handle_post(state, path, form)
+            .await
+            .map_err(|e| warp::reject::custom(RejectAnyhow(e)))
+    }
 }
 
 async fn handle_post(
@@ -167,8 +236,8 @@ async fn handle_post(
     let tags = path_to_tags(&path);
     let mut write = state.page_store.write().await;
 
-    let post_id = if let Some(id) = form.id {
-        id
+    let post_id = if let Some(id) = form.id.as_deref() {
+        id.to_owned()
     } else {
         let results = write.find(tags.as_slice());
         match results.matching_pages.len() {
@@ -177,9 +246,9 @@ async fn handle_post(
             _ => return Ok(Box::new(warp_temporary_redirect_to_get_method(".".into()))),
         }
     };
-    let page = write.get(post_id.clone()).await?;
+    let page = write.get(post_id.to_owned()).await?;
 
-    let page = page.with_new_source_body(&get_rid_of_windows_newlines(form.body));
+    let page = page.with_new_source_body(&get_rid_of_windows_newlines(form.get_body()?.to_owned()));
 
     write.put(&page).await?;
 
@@ -187,29 +256,55 @@ async fn handle_post(
         "?id={}",
         post_id
     ))))
+}
 
-    /*
-    match results.matching_pages.len() {
-        1 => {
-            let page = write
-                .get(results.matching_pages[0].id.clone())
-                .await
-                .map_err(|e| warp::reject::custom(RejectAnyhow(e)))?;
+async fn handle_put_wrapped(
+    state: Arc<State>,
+    path: FullPath,
+    form: PostForm,
+) -> Result<Box<dyn warp::Reply>, warp::Rejection> {
+    handle_put(state, path, form)
+        .await
+        .map_err(|e| warp::reject::custom(RejectAnyhow(e)))
+}
+async fn handle_put(
+    state: Arc<State>,
+    _path: FullPath,
+    form: PostForm,
+) -> Result<Box<dyn warp::Reply>> {
+    let page = page::Parsed::new(&get_rid_of_windows_newlines(form.get_body()?.to_owned()));
+    let mut write = state.page_store.write().await;
+    write.put(&page).await?;
 
-            let page = page.with_new_source_body(&get_rid_of_windows_newlines(form.body));
+    Ok(Box::new(warp_temporary_redirect_to_get_method(&format!(
+        "?id={}",
+        page.id()
+    ))))
+}
 
-            write
-                .put(&page)
-                .await
-                .map_err(|e| warp::reject::custom(RejectAnyhow(e)))?;
+async fn handle_delete_wrapped(
+    state: Arc<State>,
+    path: FullPath,
+    form: PostForm,
+) -> Result<Box<dyn warp::Reply>, warp::Rejection> {
+    handle_delete(state, path, form)
+        .await
+        .map_err(|e| warp::reject::custom(RejectAnyhow(e)))
+}
+async fn handle_delete(
+    state: Arc<State>,
+    _path: FullPath,
+    query: PostForm,
+) -> Result<Box<dyn warp::Reply>> {
+    let mut write = state.page_store.write().await;
+    let page = write
+        .get(query.id.ok_or_else(|| format_err!("Missing ID"))?)
+        .await?;
+    write.delete(page.id().to_owned()).await?;
 
-            Ok(Box::new(warp_temporary_redirect_after_post(".".into())))
-        }
-        _ => {
-            // TODO: ERROR
-            Ok(Box::new(format!("Results: {:?}", results)))
-        }
-    }*/
+    Ok(Box::new(warp_temporary_redirect_to_get_method(&format!(
+        ".",
+    ))))
 }
 
 // I wish this could be generic
@@ -223,11 +318,11 @@ async fn handle_get_wrapped(
         .map_err(|e| warp::reject::custom(RejectAnyhow(e)))
 }
 
-fn render_page(page: &page::Parsed, edit: bool) -> Box<dyn RenderBox> {
+fn render_page(page: Option<&page::Parsed>, edit: bool) -> Box<dyn RenderBox> {
     if edit {
         Box::new(render_page_editing_view(page)) as Box<dyn RenderBox>
     } else {
-        Box::new(render_page_view(page)) as Box<dyn RenderBox>
+        Box::new(render_page_view(page.expect("always some"))) as Box<dyn RenderBox>
     }
 }
 
@@ -242,8 +337,12 @@ async fn handle_get(
     if let Some(q_id) = query.id {
         let page = read.get(q_id).await?;
         return Ok(warp_reply_from_render(render_html_page(render_page(
-            &page,
+            Some(&page),
             query.edit.is_some(),
+        ))));
+    } else if query.edit.is_some() {
+        return Ok(warp_reply_from_render(render_html_page(render_page(
+            None, true,
         ))));
     }
     let results = read.find(tags.as_slice());
@@ -255,7 +354,7 @@ async fn handle_get(
     if results.matching_pages.len() == 1 {
         let page = read.get(results.matching_pages[0].id.clone()).await?;
         Ok(warp_reply_from_render(render_html_page(render_page(
-            &page,
+            Some(&page),
             query.edit.is_some(),
         ))))
     } else {
@@ -280,11 +379,21 @@ async fn start(opts: &cli::Opts) -> Result<()> {
             .and(warp::query::<GetParams>())
             .and(warp::get())
             .and_then(handle_get_wrapped))
-        .or(with_state(state)
+        .or(with_state(state.clone())
             .and(warp::path::full())
             .and(warp::post())
             .and(warp::filters::body::form())
-            .and_then(handle_post_wrapped));
+            .and_then(handle_post_wrapped))
+        .or(with_state(state.clone())
+            .and(warp::path::full())
+            .and(warp::delete())
+            .and(warp::filters::body::form())
+            .and_then(handle_delete_wrapped))
+        .or(with_state(state)
+            .and(warp::path::full())
+            .and(warp::put())
+            .and(warp::filters::body::form())
+            .and_then(handle_put_wrapped));
     info!("Listening on port {}", opts.port);
     let _serve = warp::serve(handler).run(([127, 0, 0, 1], opts.port)).await;
 

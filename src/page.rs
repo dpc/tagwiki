@@ -113,12 +113,38 @@ fn parse_tags(body: &str) -> Vec<String> {
         .collect()
 }
 
+fn parse_title(body: &str) -> String {
+    lazy_static! {
+        static ref RE: regex::Regex =
+            regex::Regex::new(r"#+[[:space:]]+(.*)").expect("correct regex");
+    }
+
+    let title = RE
+        .captures_iter(&body)
+        .map(|m| m.get(1).expect("a value").as_str().trim().to_string())
+        .next()
+        .unwrap_or_else(|| "".to_string());
+    if title == "" {
+        "Untitled".to_string()
+    } else {
+        title
+    }
+}
+
 impl Parsed {
     pub fn id(&self) -> IdRef {
         self.headers.id.as_str()
     }
 
-    fn from_full_source(source: Source) -> Parsed {
+    pub fn new(body: &str) -> Parsed {
+        let headers = Headers {
+            id: crate::util::random_string(16),
+            ..Headers::default()
+        };
+        Self::from_headers_and_body(headers, body.to_owned())
+    }
+
+    pub fn from_full_source(source: Source) -> Parsed {
         let (headers, body) = split_headers_and_body(&source);
         let headers = Headers::parse(headers, &source);
 
@@ -128,6 +154,7 @@ impl Parsed {
     fn from_headers_and_body(headers: Headers, body: String) -> Parsed {
         let source = headers.to_markdown_string() + &body;
         let parser = pulldown_cmark::Parser::new(&body);
+        let title = parse_title(&body);
         let mut html_output = String::new();
         pulldown_cmark::html::push_html(&mut html_output, parser);
 
@@ -139,7 +166,7 @@ impl Parsed {
             source_body: body,
             source: Source(source),
             tags,
-            title: "TODO".into(),
+            title,
         }
     }
 

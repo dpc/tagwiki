@@ -35,6 +35,7 @@ impl FsStore {
     }
 
     fn title_to_new_rel_path(&self, title: &str) -> PathBuf {
+        let title = title.trim();
         let mut last_char_was_alphanum = false;
         let mut path_str = String::new();
         for ch in title.chars() {
@@ -56,11 +57,11 @@ impl FsStore {
         let initial_title = path_str.clone();
         let mut path = PathBuf::from(&initial_title);
         let mut i = 1;
-        while let Some(_) = self.path_to_page.get(&path) {
+        while let Some(_) = self.path_to_page.get(&path.with_extension("md")) {
             path = PathBuf::from(format!("{}-{}", &initial_title, i));
             i += 1;
         }
-        path
+        path.with_extension("md")
     }
 
     fn try_reading_page_from_entry_res(
@@ -102,7 +103,7 @@ impl FsStore {
     async fn write_page_to_file(&self, rel_path: &Path, page: &page::Parsed) -> Result<()> {
         let page = page.clone();
         use std::io::Write;
-        let path = self.root_path.join(rel_path);
+        let path = self.root_path.join(rel_path).with_extension("md");
         let tmp_path = path.with_extension(format!("md.tmp.{}", crate::util::random_string(8)));
 
         tokio::task::spawn_blocking(move || -> Result<()> {
