@@ -186,12 +186,12 @@ fn render_post_list(
         ul {
             @ for tag in unmatched_tags {
                 li {
-                    a(href=format!("./{}", tag.0)) : format!("{} ({})", tag.0, tag.1)
+                    a(href=format!("./{}/", tag.0)) : format!("{} ({})", tag.0, tag.1)
                 }
             }
             @ for post in posts {
                 li {
-                    a(href=format!("?id={}", post.id)) : post.title
+                    a(href=format!("./?id={}", post.id)) : post.title
                 }
             }
         }
@@ -347,6 +347,14 @@ async fn handle_get(
     path: FullPath,
     query: GetParams,
 ) -> Result<Box<dyn warp::Reply>> {
+    // rediect anything that does not end with `/`
+    // This way relative links always work as expected.
+    if !path.as_str().ends_with('/') {
+        return Ok(Box::new(warp_temporary_redirect(&format!(
+            "{}/",
+            path.as_str()
+        ))));
+    }
     let tags = path_to_tags(&path);
     let read = state.page_store.read().await;
 

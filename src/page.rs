@@ -106,7 +106,8 @@ impl Headers {
 
 fn parse_tags(body: &str) -> Vec<String> {
     lazy_static! {
-        static ref RE: regex::Regex = regex::Regex::new(r"#([a-zA-Z0-9]+)").expect("correct regex");
+        static ref RE: regex::Regex =
+            regex::Regex::new(r"#([a-zA-Z0-9_\-]+)").expect("correct regex");
     }
 
     RE.captures_iter(&body)

@@ -88,16 +88,15 @@ where
             }
         }
 
-        let unmatched_tags_set: HashSet<Tag> = unmatched_tags.keys().cloned().collect();
-
         let mut pages: Vec<PageInfo> = results
             .matching_pages
             .into_iter()
             .filter(|page_info| {
-                unmatched_tags_set
-                    .intersection(&self.tags_by_page_id[&page_info.id])
-                    .next()
-                    .is_none()
+                self.tags_by_page_id[&page_info.id]
+                    .iter()
+                    .filter(|page_tag| !matching_tags.contains(page_tag.as_str()))
+                    .count()
+                    < 5
             })
             .collect();
 
