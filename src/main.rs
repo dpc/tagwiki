@@ -101,7 +101,9 @@ fn render_page_editing_view(page: Option<&page::Parsed>) -> impl RenderOnce {
         let body = page.source_body.clone();
         let id = page.id().to_owned();
         (box_html! {
-            form(action=".", method="post") {
+            form(action=".", method="post", class="pure-form") {
+                a(href=format!("?id={}", id),class="pure-button"){ : "Cancel" }
+                : " ";
                 input(type="submit", value="Save", class="pure-button pure-button-primary");
                 input(type="hidden", name="id", value=id);
                 textarea(name="body") {
@@ -111,7 +113,9 @@ fn render_page_editing_view(page: Option<&page::Parsed>) -> impl RenderOnce {
         }) as Box<dyn RenderBox>
     } else {
         box_html! {
-            form(action=".", method="post") {
+            form(action=".", method="post", class="pure-form") {
+                a(href="javascript:history.back()",class="pure-button"){ : "Cancel" }
+                : " ";
                 input(type="submit", value="Save", class="pure-button pure-button-primary");
                 input(type="hidden", name="_method", value="put");
                 textarea(name="body");
@@ -126,25 +130,28 @@ fn render_page_view(page: &page::Parsed) -> impl RenderOnce {
     let id_copy = id.clone();
     owned_html! {
         div(class="pure-menu pure-menu-horizontal") {
-            form(action="..", method="get", class="pure-menu-item") {
+            form(action="..", method="get", class="pure-menu-item pure-form") {
                 button(type="submit", class="pure-button"){
                     : "Up"
                 }
             }
-            form(action="/", method="get", class="pure-menu-item") {
+            : " ";
+            form(action="/", method="get", class="pure-menu-item pure-form") {
                 input(type="hidden", name="edit", value="true");
                 button(type="submit", class="pure-button button-green"){
                     : "New"
                 }
             }
-            form(action=".", method="get", class="pure-menu-item") {
+            : " ";
+            form(action=".", method="get", class="pure-menu-item pure-form") {
                 input(type="hidden", name="edit", value="true");
                 input(type="hidden", name="id", value=id);
                 button(type="submit", class="pure-button pure-button-primary"){
                     : "Edit"
                 }
             }
-            form(action=".", method="post", class="pure-menu-item") {
+            : " ";
+            form(action=".", method="post", class="pure-menu-item pure-form") {
                 input(type="hidden", name="edit", value="true");
                 input(type="hidden", name="id", value=id_copy);
                 input(type="hidden", name="_method", value="delete");
@@ -163,12 +170,13 @@ fn render_post_list(
 ) -> impl RenderOnce {
     owned_html! {
         div(class="pure-menu pure-menu-horizontal") {
-            form(action="..", method="get", class="pure-menu-item") {
+            form(action="..", method="get", class="pure-menu-item pure-form") {
                 button(type="submit", class="pure-button"){
                     : "Up"
                 }
             }
-            form(action="/", method="get", class="pure-menu-item") {
+            : " ";
+            form(action="/", method="get", class="pure-menu-item pure-form") {
                 input(type="hidden", name="edit", value="true");
                 button(type="submit", class="pure-button button-green"){
                     : "New"

@@ -54,7 +54,7 @@ impl FsStore {
             last_char_was_alphanum = is_alphanum;
         }
 
-        let initial_title = path_str.clone();
+        let initial_title = path_str.to_lowercase();
         let mut path = PathBuf::from(&initial_title);
         let mut i = 1;
         while let Some(_) = self.path_to_page.get(&path.with_extension("md")) {
