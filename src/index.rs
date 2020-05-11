@@ -11,12 +11,19 @@ pub struct Index<T> {
     // tag -> page_ids
     page_ids_by_tag: HashMap<String, HashSet<Id>>,
     tags_by_page_id: HashMap<Id, Vec<Tag>>,
+    title_by_page_id: HashMap<Id, String>,
     store: T,
+}
+
+#[derive(Debug, Clone)]
+pub struct PageInfo {
+    pub id: Id,
+    pub title: String,
 }
 
 #[derive(Default, Debug, Clone)]
 pub struct FindResults {
-    pub matching_pages: Vec<Id>,
+    pub matching_pages: Vec<PageInfo>,
     pub matching_tags: Vec<page::Tag>,
 }
 
@@ -34,6 +41,7 @@ where
         let mut s = Index {
             page_ids_by_tag: Default::default(),
             tags_by_page_id: Default::default(),
+            title_by_page_id: Default::default(),
             store,
         };
 
@@ -57,9 +65,22 @@ where
 
 impl<T> Index<T> {
     pub fn find(&self, tags: &[TagRef]) -> FindResults {
-        let mut matching_pages: Vec<String> = vec![];
+        let mut matching_pages: Vec<PageInfo> = vec![];
         let mut matching_tags: Vec<String> = vec![];
         let mut already_tried_tags = HashSet::new();
+
+        if tags.is_empty() {
+            matching_pages = self
+                .tags_by_page_id
+                .keys()
+                .cloned()
+                .map(|id| PageInfo {
+                    id: id.clone(),
+                    title: self.title_by_page_id[&id].clone(),
+                })
+                .collect();
+        }
+
         for tag in tags {
             if already_tried_tags.contains(tag) {
                 continue;
@@ -67,7 +88,13 @@ impl<T> Index<T> {
             already_tried_tags.insert(tag);
             if matching_tags.is_empty() {
                 if let Some(ids) = &self.page_ids_by_tag.get(*tag) {
-                    matching_pages = ids.iter().map(|id| id.to_owned()).collect();
+                    matching_pages = ids
+                        .iter()
+                        .map(|id| PageInfo {
+                            id: id.to_owned(),
+                            title: self.title_by_page_id[id].clone(),
+                        })
+                        .collect();
                     matching_tags.push(tag.to_string())
                 } else {
                     return FindResults::empty();
@@ -76,7 +103,7 @@ impl<T> Index<T> {
                 if let Some(ids) = self.page_ids_by_tag.get(*tag) {
                     let new_matching_pages: Vec<_> = matching_pages
                         .iter()
-                        .filter(|id| ids.contains(id.as_str()))
+                        .filter(|info| ids.contains(info.id.as_str()))
                         .map(|id| id.to_owned())
                         .collect();
                     if new_matching_pages.is_empty() {
@@ -107,9 +134,11 @@ impl<T> Index<T> {
             self.page_ids_by_tag
                 .entry(tag.clone())
                 .or_default()
-                .insert(page.headers.id.clone());
+                .insert(page.id().to_owned());
             self.tags_by_page_id
-                .insert(page.headers.id.clone(), page.tags.clone());
+                .insert(page.id().to_owned(), page.tags.clone());
+            self.title_by_page_id
+                .insert(page.id().to_owned(), page.title.clone());
         }
     }
 
@@ -125,6 +154,7 @@ impl<T> Index<T> {
                 .map(|set| set.remove(&id));
         }
         self.tags_by_page_id.remove(&id);
+        self.title_by_page_id.remove(&id);
     }
 }
 
@@ -140,8 +170,8 @@ where
     async fn put(&mut self, page: &page::Parsed) -> Result<()> {
         self.store.put(page).await?;
 
-        if let Some(_tags) = self.tags_by_page_id.get(&page.headers.id) {
-            self.clean_data_for_page(page.headers.id.clone());
+        if let Some(_tags) = self.tags_by_page_id.get(page.id()) {
+            self.clean_data_for_page(page.id().to_owned());
         }
 
         self.add_data_for_page(page);

@@ -10,6 +10,7 @@ use digest::Digest;
 pub type Id = String;
 pub type Tag = String;
 pub type TagRef<'a> = &'a str;
+pub type IdRef<'a> = &'a str;
 
 const TAGWIKI_PAGE_ID_KEY: &str = "tagwiki-page-id";
 
@@ -113,6 +114,10 @@ fn parse_tags(body: &str) -> Vec<String> {
 }
 
 impl Parsed {
+    pub fn id(&self) -> IdRef {
+        self.headers.id.as_str()
+    }
+
     fn from_full_source(source: Source) -> Parsed {
         let (headers, body) = split_headers_and_body(&source);
         let headers = Headers::parse(headers, &source);
@@ -186,6 +191,6 @@ tagwiki-id: 123
     ));
 
     println!("{:#?}", page);
-    assert_eq!(page.headers.id, "xyz");
+    assert_eq!(page.id(), "xyz");
     Ok(())
 }

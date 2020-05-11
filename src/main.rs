@@ -1,6 +1,6 @@
 //! tagwiki
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use log::info;
 use std::sync::Arc;
 use structopt::StructOpt;
@@ -19,6 +19,10 @@ mod index;
 
 /// Utils
 mod util;
+
+use horrorshow::helper::doctype;
+use horrorshow::owned_html;
+use horrorshow::prelude::*;
 
 #[derive(Debug)]
 struct RejectAnyhow(anyhow::Error);
@@ -44,7 +48,7 @@ fn warp_temporary_redirect(location: &str) -> warp::http::Response<&'static str>
         .expect("correct redirect")
 }
 
-fn warp_temporary_redirect_after_post(location: &str) -> warp::http::Response<&'static str> {
+fn warp_temporary_redirect_to_get_method(location: &str) -> warp::http::Response<&'static str> {
     warp::http::Response::builder()
         .status(303)
         .header(warp::http::header::LOCATION, location)
@@ -57,20 +61,73 @@ fn get_rid_of_windows_newlines(s: String) -> String {
 }
 
 #[derive(Deserialize, Debug)]
-struct GetPrompt {
+struct GetParams {
     edit: Option<bool>,
+    id: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
 struct PostForm {
     body: String,
+    id: Option<String>,
 }
 
-fn html_for_editing_page(page: &page::Parsed) -> String {
-    format!(
-        "<form action='.' method='POST'><textarea name='body'>{}</textarea><br/><input type=submit></form>",
-        page.source_body
-    )
+fn render_html_page(page: impl RenderOnce) -> impl RenderOnce {
+    owned_html! {
+        : doctype::HTML;
+        head {
+            link(rel="stylesheet", media="all", href="/_style.css");
+        }
+        body : page;
+    }
+}
+
+fn render_page_editing_view(page: &page::Parsed) -> impl RenderOnce {
+    let body = page.source_body.clone();
+    let id = page.id().to_owned();
+    owned_html! {
+        form(action=".", method="post") {
+            input(type="submit", value="Save");
+            input(type="hidden", name="id", value=id);
+            textarea(name="body") {
+                : body
+            }
+        }
+
+    }
+}
+
+fn render_page_view(page: &page::Parsed) -> impl RenderOnce {
+    let page_html = page.html.clone();
+    let id = page.id().to_owned();
+    owned_html! {
+        form(action=".", method="get") {
+            input(type="hidden", name="edit", value="true");
+            input(type="hidden", name="id", value=id);
+            button(type="submit"){
+                : "Edit"
+            }
+        }
+        : Raw(page_html)
+    }
+}
+
+fn render_post_list(posts: impl Iterator<Item = index::PageInfo> + 'static) -> impl RenderOnce {
+    owned_html! {
+        ul {
+            @ for post in posts {
+                li {
+                    a(href=format!("?id={}", post.id)) : post.title
+                }
+            }
+        }
+    }
+}
+
+fn warp_reply_from_render(render: impl RenderOnce) -> Box<dyn warp::Reply> {
+    Box::new(warp::reply::html(
+        render.into_string().expect("rendering without errors"),
+    ))
 }
 
 fn path_to_tags(path: &FullPath) -> Vec<&str> {
@@ -81,19 +138,61 @@ fn path_to_tags(path: &FullPath) -> Vec<&str> {
         .collect()
 }
 
+async fn handle_style_css() -> std::result::Result<warp::http::Response<String>, warp::Rejection> {
+    Ok(warp::http::Response::builder()
+        .status(200)
+        .header(warp::http::header::CONTENT_TYPE, "text/css")
+        .body(
+            include_str!("../resources/reset.css").to_string()
+                + include_str!("../resources/style.css"),
+        )
+        .expect("correct redirect"))
+}
+
+async fn handle_post_wrapped(
+    state: Arc<State>,
+    path: FullPath,
+    form: PostForm,
+) -> Result<Box<dyn warp::Reply>, warp::Rejection> {
+    handle_post(state, path, form)
+        .await
+        .map_err(|e| warp::reject::custom(RejectAnyhow(e)))
+}
+
 async fn handle_post(
     state: Arc<State>,
     path: FullPath,
     form: PostForm,
-) -> std::result::Result<Box<dyn warp::Reply>, warp::Rejection> {
+) -> Result<Box<dyn warp::Reply>> {
     let tags = path_to_tags(&path);
     let mut write = state.page_store.write().await;
-    let results = write.find(tags.as_slice());
 
+    let post_id = if let Some(id) = form.id {
+        id
+    } else {
+        let results = write.find(tags.as_slice());
+        match results.matching_pages.len() {
+            1 => results.matching_pages[0].id.clone(),
+            0 => bail!("Page not found"),
+            _ => return Ok(Box::new(warp_temporary_redirect_to_get_method(".".into()))),
+        }
+    };
+    let page = write.get(post_id.clone()).await?;
+
+    let page = page.with_new_source_body(&get_rid_of_windows_newlines(form.body));
+
+    write.put(&page).await?;
+
+    Ok(Box::new(warp_temporary_redirect_to_get_method(&format!(
+        "?id={}",
+        post_id
+    ))))
+
+    /*
     match results.matching_pages.len() {
         1 => {
             let page = write
-                .get(results.matching_pages[0].clone())
+                .get(results.matching_pages[0].id.clone())
                 .await
                 .map_err(|e| warp::reject::custom(RejectAnyhow(e)))?;
 
@@ -110,16 +209,43 @@ async fn handle_post(
             // TODO: ERROR
             Ok(Box::new(format!("Results: {:?}", results)))
         }
+    }*/
+}
+
+// I wish this could be generic
+async fn handle_get_wrapped(
+    state: Arc<State>,
+    path: FullPath,
+    query: GetParams,
+) -> std::result::Result<Box<dyn warp::Reply>, warp::Rejection> {
+    handle_get(state, path, query)
+        .await
+        .map_err(|e| warp::reject::custom(RejectAnyhow(e)))
+}
+
+fn render_page(page: &page::Parsed, edit: bool) -> Box<dyn RenderBox> {
+    if edit {
+        Box::new(render_page_editing_view(page)) as Box<dyn RenderBox>
+    } else {
+        Box::new(render_page_view(page)) as Box<dyn RenderBox>
     }
 }
 
 async fn handle_get(
     state: Arc<State>,
     path: FullPath,
-    query: GetPrompt,
-) -> std::result::Result<Box<dyn warp::Reply>, warp::Rejection> {
+    query: GetParams,
+) -> Result<Box<dyn warp::Reply>> {
     let tags = path_to_tags(&path);
     let read = state.page_store.read().await;
+
+    if let Some(q_id) = query.id {
+        let page = read.get(q_id).await?;
+        return Ok(warp_reply_from_render(render_html_page(render_page(
+            &page,
+            query.edit.is_some(),
+        ))));
+    }
     let results = read.find(tags.as_slice());
     if results.matching_tags != tags {
         return Ok(Box::new(warp_temporary_redirect(
@@ -127,18 +253,15 @@ async fn handle_get(
         )));
     }
     if results.matching_pages.len() == 1 {
-        let page = read
-            .get(results.matching_pages[0].clone())
-            .await
-            .map_err(|e| warp::reject::custom(RejectAnyhow(e)))?;
-        Ok(Box::new(warp::reply::html(if query.edit.is_none() {
-            page.html
-                + "<form action='.' method='get'><input type='hidden' name='edit' value='true' /><button type='submit'/>Edit Page</form>"
-        } else {
-            html_for_editing_page(&page)
-        })))
+        let page = read.get(results.matching_pages[0].id.clone()).await?;
+        Ok(warp_reply_from_render(render_html_page(render_page(
+            &page,
+            query.edit.is_some(),
+        ))))
     } else {
-        Ok(Box::new(format!("Results: {:?}", results)))
+        Ok(warp_reply_from_render(render_html_page(render_post_list(
+            results.matching_pages.into_iter(),
+        ))))
     }
 }
 
@@ -151,17 +274,17 @@ async fn start(opts: &cli::Opts) -> Result<()> {
         )),
     });
     let handler = warp::any()
-        .and(with_state(state.clone()))
-        .and(warp::path::full())
-        .and(warp::query::<GetPrompt>())
-        .and(warp::get())
-        .and_then(handle_get)
-        .or(warp::any()
-            .and(with_state(state))
+        .and(warp::path!("_style.css").and_then(handle_style_css))
+        .or(with_state(state.clone())
+            .and(warp::path::full())
+            .and(warp::query::<GetParams>())
+            .and(warp::get())
+            .and_then(handle_get_wrapped))
+        .or(with_state(state)
             .and(warp::path::full())
             .and(warp::post())
             .and(warp::filters::body::form())
-            .and_then(handle_post));
+            .and_then(handle_post_wrapped));
     info!("Listening on port {}", opts.port);
     let _serve = warp::serve(handler).run(([127, 0, 0, 1], opts.port)).await;
 
