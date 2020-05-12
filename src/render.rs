@@ -3,7 +3,15 @@ use horrorshow::prelude::*;
 use horrorshow::{box_html, owned_html};
 
 use crate::index;
-use crate::page::{self, Tag};
+use crate::page::{Parsed, Tag};
+
+#[derive(Clone, Debug)]
+pub struct PageState {
+    // currently rendered path
+    pub path: String,
+    pub edit: bool,
+    pub page: Option<Parsed>,
+}
 
 pub fn html_page(body: impl RenderOnce) -> impl RenderOnce {
     owned_html! {
@@ -20,78 +28,99 @@ pub fn html_page(body: impl RenderOnce) -> impl RenderOnce {
     }
 }
 
-pub fn page(page: Option<&page::Parsed>, edit: bool) -> Box<dyn RenderBox> {
-    if edit {
-        Box::new(page_editing_view(page)) as Box<dyn RenderBox>
+pub fn page(page_state: PageState) -> Box<dyn RenderBox> {
+    if page_state.edit {
+        Box::new(page_editing_view(page_state)) as Box<dyn RenderBox>
     } else {
-        Box::new(page_view(page.expect("always some"))) as Box<dyn RenderBox>
+        Box::new(page_view(page_state)) as Box<dyn RenderBox>
     }
 }
 
-pub fn page_editing_view(page: Option<&page::Parsed>) -> impl RenderOnce {
-    if let Some(page) = page.as_ref() {
+pub fn page_editing_view(page_state: PageState) -> impl RenderOnce {
+    if let Some(page) = page_state.page.as_ref() {
         let body = page.source_body.clone();
-        let id = page.id().to_owned();
-        (box_html! {
-            form(action=".", method="post", class="pure-form") {
-                a(href=format!("?id={}", id),class="pure-button"){ : "Cancel" }
-                : " ";
-                input(type="submit", value="Save", class="pure-button pure-button-primary");
-                input(type="hidden", name="id", value=id);
-                textarea(name="body") {
-                    : body
+        menu(
+            page_state.clone(),
+            Some(
+                (box_html! {
+                    textarea(name="body") {
+                        : body
+                    }
+                }) as Box<dyn RenderBox>,
+            ),
+        )
+    } else {
+        menu(
+            page_state.clone(),
+            Some(
+                (box_html! {
+                    textarea(name="body");
+                }) as Box<dyn RenderBox>,
+            ),
+        )
+    }
+}
+
+pub fn menu(page_state: PageState, subform: Option<Box<dyn RenderBox>>) -> impl RenderOnce {
+    let id = page_state.page.map(|p| p.id().to_owned());
+    let edit = page_state.edit;
+
+    owned_html! {
+        form {
+            div(class="pure-menu pure-menu-horizontal") {
+                @ if let Some(id) = id.as_deref() {
+                    input(type="hidden", name="id", value=id);
+                }
+
+                @ if edit {
+                    @ if let Some(id) = id.as_deref() {
+                        a(href=format!("?id={}", id), class="pure-button"){ : "Cancel" }
+                        : " ";
+                    } else {
+                        a(href="javascript:history.back()", class="pure-button"){ : "Cancel" }
+                        : " ";
+                    }
+                } else {
+                    a(href="..",class="pure-button") { : "Up" }
+                    : " ";
+                }
+                @ if edit {
+                    @ if let Some(_id) = id.as_deref() {
+                        button(type="submit", class="pure-button pure-button-primary", formaction=".", formmethod="post"){
+                            : "Save"
+                        }
+                    } else {
+                        button(type="submit", class="pure-button pure-button-primary", formaction=".", formmethod="post", name="_method", value="put"){
+                            : "Save"
+                        }
+                    }
+                    : " ";
+                } else {
+                    a(href="?edit=true", class="pure-button button-green"){ : "New" }
+                    : " ";
+                }
+                @ if !edit {
+                    input(type="hidden", name="edit", value="true");
+                    button(type="submit", class="pure-button pure-button-primary", formaction=".", formmethod="get"){
+                        : "Edit"
+                    }
+                    : " ";
+                    button(type="submit", class="pure-button button-warning", formaction=".", formmethod="post", name="_method", value="delete", onclick="return confirm('Are you sure?');"){
+                        : "Delete"
+                    }
                 }
             }
-        }) as Box<dyn RenderBox>
-    } else {
-        box_html! {
-            form(action=".", method="post", class="pure-form") {
-                a(href="javascript:history.back()",class="pure-button"){ : "Cancel" }
-                : " ";
-                input(type="submit", value="Save", class="pure-button pure-button-primary");
-                input(type="hidden", name="_method", value="put");
-                textarea(name="body");
-            }
+            : subform
         }
     }
 }
 
-pub fn page_view(page: &page::Parsed) -> impl RenderOnce {
+pub fn page_view(page_state: PageState) -> impl RenderOnce {
+    let menu = menu(page_state.clone(), None);
+    let page = page_state.page.expect("always some");
     let page_html = page.html.clone();
-    let id = page.id().to_owned();
-    let id_copy = id.clone();
     owned_html! {
-        div(class="pure-menu pure-menu-horizontal") {
-            form(action="..", method="get", class="pure-menu-item pure-form") {
-                button(type="submit", class="pure-button"){
-                    : "Up"
-                }
-            }
-            : " ";
-            form(action="/", method="get", class="pure-menu-item pure-form") {
-                input(type="hidden", name="edit", value="true");
-                button(type="submit", class="pure-button button-green"){
-                    : "New"
-                }
-            }
-            : " ";
-            form(action=".", method="get", class="pure-menu-item pure-form") {
-                input(type="hidden", name="edit", value="true");
-                input(type="hidden", name="id", value=id);
-                button(type="submit", class="pure-button pure-button-primary"){
-                    : "Edit"
-                }
-            }
-            : " ";
-            form(action=".", method="post", class="pure-menu-item pure-form") {
-                input(type="hidden", name="edit", value="true");
-                input(type="hidden", name="id", value=id_copy);
-                input(type="hidden", name="_method", value="delete");
-                button(type="submit", class="pure-button button-warning",onclick="return confirm('Are you sure?');"){
-                    : "Delete"
-                }
-            }
-        }
+        : menu;
         : Raw(page_html)
     }
 }

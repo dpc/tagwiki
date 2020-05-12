@@ -3,6 +3,10 @@ body {
   margin: 0 auto;
 }
 
+a.pure-button {
+  padding: .5em 1em;
+}
+
 .button-warning {
   color: white;
   background: rgb(223, 117, 20);

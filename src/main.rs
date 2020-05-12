@@ -231,17 +231,25 @@ async fn handle_get(
         ))));
     }
     let tags = path_to_tags(&path);
+    let page_state = render::PageState {
+        page: None,
+        edit: query.edit.is_some(),
+        path: path.as_str().to_string(),
+    };
+
     let read = state.page_store.read().await;
 
     if let Some(q_id) = query.id {
         let page = read.get(q_id).await?;
         return Ok(warp_reply_from_render(render::html_page(render::page(
-            Some(&page),
-            query.edit.is_some(),
+            render::PageState {
+                page: Some(page),
+                ..page_state
+            },
         ))));
     } else if query.edit.is_some() {
         return Ok(warp_reply_from_render(render::html_page(render::page(
-            None, true,
+            page_state,
         ))));
     }
     let results = read.find(tags.as_slice());
@@ -253,8 +261,10 @@ async fn handle_get(
     if results.matching_pages.len() == 1 {
         let page = read.get(results.matching_pages[0].id.clone()).await?;
         Ok(warp_reply_from_render(render::html_page(render::page(
-            Some(&page),
-            query.edit.is_some(),
+            render::PageState {
+                page: Some(page),
+                ..page_state
+            },
         ))))
     } else {
         let compact_results = read.compact_results(results);
