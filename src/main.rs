@@ -106,6 +106,17 @@ async fn handle_style_css() -> std::result::Result<warp::http::Response<String>,
         .expect("correct redirect"))
 }
 
+async fn handle_script_js() -> std::result::Result<warp::http::Response<String>, warp::Rejection> {
+    Ok(warp::http::Response::builder()
+        .status(200)
+        .header(warp::http::header::CONTENT_TYPE, "application/javascript")
+        .body(
+            include_str!("../resources/mousetrap.min.js").to_string()
+                + include_str!("../resources/script.js"),
+        )
+        .expect("correct response"))
+}
+
 async fn handle_post_wrapped(
     state: Arc<State>,
     path: FullPath,
@@ -270,6 +281,7 @@ async fn handle_get(
         let compact_results = read.compact_results(results);
         Ok(warp_reply_from_render(render::html_page(
             render::post_list(
+                page_state,
                 compact_results.tags.into_iter(),
                 compact_results.pages.into_iter(),
             ),
@@ -287,6 +299,7 @@ async fn start(opts: &cli::Opts) -> Result<()> {
     });
     let handler = warp::any()
         .and(warp::path!("_style.css").and_then(handle_style_css))
+        .or(warp::path!("_script.js").and_then(handle_script_js))
         .or(with_state(state.clone())
             .and(warp::path::full())
             .and(warp::query::<GetParams>())

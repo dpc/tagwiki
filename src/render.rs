@@ -23,7 +23,8 @@ pub fn html_page(body: impl RenderOnce) -> impl RenderOnce {
             link(rel="stylesheet", media="all", href="/_style.css");
         }
         body {
-           : body
+           : body;
+           script(src="/_script.js");
         }
     }
 }
@@ -43,7 +44,7 @@ pub fn page_editing_view(page_state: PageState) -> impl RenderOnce {
             page_state.clone(),
             Some(
                 (box_html! {
-                    textarea(name="body") {
+                    textarea(name="body", id="source-editor", autofocus) {
                         : body
                     }
                 }) as Box<dyn RenderBox>,
@@ -54,7 +55,7 @@ pub fn page_editing_view(page_state: PageState) -> impl RenderOnce {
             page_state.clone(),
             Some(
                 (box_html! {
-                    textarea(name="body");
+                    textarea(name="body", id="source-editor", autofocus);
                 }) as Box<dyn RenderBox>,
             ),
         )
@@ -74,39 +75,39 @@ pub fn menu(page_state: PageState, subform: Option<Box<dyn RenderBox>>) -> impl 
 
                 @ if edit {
                     @ if let Some(id) = id.as_deref() {
-                        a(href=format!("?id={}", id), class="pure-button"){ : "Cancel" }
+                        a(href=format!("?id={}", id), class="pure-button", id="cancel-button"){ : "Cancel" }
                         : " ";
                     } else {
-                        a(href="javascript:history.back()", class="pure-button"){ : "Cancel" }
+                        a(href="javascript:history.back()", class="pure-button", id="cancel-button"){ : "Cancel" }
                         : " ";
                     }
                 } else {
-                    a(href="..",class="pure-button") { : "Up" }
+                    a(href="..",class="pure-button", id="up-button") { : "Up" }
                     : " ";
                 }
                 @ if edit {
                     @ if let Some(_id) = id.as_deref() {
-                        button(type="submit", class="pure-button pure-button-primary", formaction=".", formmethod="post"){
-                            : "Save"
+                        button(type="submit", id="save-button", class="pure-button pure-button-primary", formaction=".", formmethod="post"){
+                            : Raw("<u>S</u>ave")
                         }
                     } else {
-                        button(type="submit", class="pure-button pure-button-primary", formaction=".", formmethod="post", name="_method", value="put"){
-                            : "Save"
+                        button(type="submit", id="save-button", class="pure-button pure-button-primary", formaction=".", formmethod="post", name="_method", value="put"){
+                            : Raw("<u>S</u>ave")
                         }
                     }
                     : " ";
                 } else {
-                    a(href="?edit=true", class="pure-button button-green"){ : "New" }
+                    a(href="?edit=true", class="pure-button button-green"){ : Raw("<u>N</u>ew") }
                     : " ";
                 }
-                @ if !edit {
+                @ if !edit && id.is_some() {
                     input(type="hidden", name="edit", value="true");
-                    button(type="submit", class="pure-button pure-button-primary", formaction=".", formmethod="get"){
-                        : "Edit"
+                    button(type="submit", id="edit-button", class="pure-button pure-button-primary", formaction=".", formmethod="get"){
+                        : Raw("<u>E</u>dit")
                     }
                     : " ";
-                    button(type="submit", class="pure-button button-warning", formaction=".", formmethod="post", name="_method", value="delete", onclick="return confirm('Are you sure?');"){
-                        : "Delete"
+                    button(type="submit", id="delete-button", class="pure-button button-warning", formaction=".", formmethod="post", name="_method", value="delete", onclick="return confirm('Are you sure?');"){
+                        : Raw("<u>D</u>elete")
                     }
                 }
             }
@@ -126,25 +127,14 @@ pub fn page_view(page_state: PageState) -> impl RenderOnce {
 }
 
 pub fn post_list(
+    page_state: PageState,
     unmatched_tags: impl Iterator<Item = (Tag, usize)>,
     posts: impl Iterator<Item = index::PageInfo> + 'static,
 ) -> impl RenderOnce {
+    let menu = menu(page_state.clone(), None);
     owned_html! {
-        div(class="pure-menu pure-menu-horizontal") {
-            form(action="..", method="get", class="pure-menu-item pure-form") {
-                button(type="submit", class="pure-button"){
-                    : "Up"
-                }
-            }
-            : " ";
-            form(action="/", method="get", class="pure-menu-item pure-form") {
-                input(type="hidden", name="edit", value="true");
-                button(type="submit", class="pure-button button-green"){
-                    : "New"
-                }
-            }
-        }
-        ul {
+        : menu;
+        ul(id="index") {
             @ for tag in unmatched_tags {
                 li {
                     a(href=format!("./{}/", tag.0)) : format!("{} ({})", tag.0, tag.1)
