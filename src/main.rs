@@ -8,7 +8,7 @@ use warp::{path::FullPath, Filter};
 
 use serde_derive::Deserialize;
 
-use page::{StoreMut, Tag};
+use page::StoreMut;
 
 /// Command line options
 mod cli;
@@ -20,15 +20,14 @@ mod index;
 /// Utils
 mod util;
 
-use horrorshow::helper::doctype;
-use horrorshow::prelude::*;
-use horrorshow::{box_html, owned_html};
+mod render;
 
 #[derive(Debug)]
 struct RejectAnyhow(anyhow::Error);
 
 impl warp::reject::Reject for RejectAnyhow {}
 
+/// Web-server shared state
 struct State {
     page_store:
         Arc<tokio::sync::RwLock<index::Index<Box<dyn page::store::StoreMut + Sync + Send>>>>,
@@ -81,124 +80,8 @@ impl PostForm {
     }
 }
 
-fn render_html_page(body: impl RenderOnce) -> impl RenderOnce {
-    owned_html! {
-        : doctype::HTML;
-        head {
-            link(rel="stylesheet",href="https://unpkg.com/purecss@2.0.1/build/pure-min.css",crossorigin="anonymous");
-            link(rel="stylesheet",href="https://unpkg.com/purecss@2.0.1/build/grids-responsive-min.css");
-            meta(name="viewport",content="width=device-width, initial-scale=1");
-            link(rel="stylesheet", media="all", href="/_style.css");
-        }
-        body {
-           : body
-        }
-    }
-}
-
-fn render_page_editing_view(page: Option<&page::Parsed>) -> impl RenderOnce {
-    if let Some(page) = page.as_ref() {
-        let body = page.source_body.clone();
-        let id = page.id().to_owned();
-        (box_html! {
-            form(action=".", method="post", class="pure-form") {
-                a(href=format!("?id={}", id),class="pure-button"){ : "Cancel" }
-                : " ";
-                input(type="submit", value="Save", class="pure-button pure-button-primary");
-                input(type="hidden", name="id", value=id);
-                textarea(name="body") {
-                    : body
-                }
-            }
-        }) as Box<dyn RenderBox>
-    } else {
-        box_html! {
-            form(action=".", method="post", class="pure-form") {
-                a(href="javascript:history.back()",class="pure-button"){ : "Cancel" }
-                : " ";
-                input(type="submit", value="Save", class="pure-button pure-button-primary");
-                input(type="hidden", name="_method", value="put");
-                textarea(name="body");
-            }
-        }
-    }
-}
-
-fn render_page_view(page: &page::Parsed) -> impl RenderOnce {
-    let page_html = page.html.clone();
-    let id = page.id().to_owned();
-    let id_copy = id.clone();
-    owned_html! {
-        div(class="pure-menu pure-menu-horizontal") {
-            form(action="..", method="get", class="pure-menu-item pure-form") {
-                button(type="submit", class="pure-button"){
-                    : "Up"
-                }
-            }
-            : " ";
-            form(action="/", method="get", class="pure-menu-item pure-form") {
-                input(type="hidden", name="edit", value="true");
-                button(type="submit", class="pure-button button-green"){
-                    : "New"
-                }
-            }
-            : " ";
-            form(action=".", method="get", class="pure-menu-item pure-form") {
-                input(type="hidden", name="edit", value="true");
-                input(type="hidden", name="id", value=id);
-                button(type="submit", class="pure-button pure-button-primary"){
-                    : "Edit"
-                }
-            }
-            : " ";
-            form(action=".", method="post", class="pure-menu-item pure-form") {
-                input(type="hidden", name="edit", value="true");
-                input(type="hidden", name="id", value=id_copy);
-                input(type="hidden", name="_method", value="delete");
-                button(type="submit", class="pure-button button-warning",onclick="return confirm('Are you sure?');"){
-                    : "Delete"
-                }
-            }
-        }
-        : Raw(page_html)
-    }
-}
-
-fn render_post_list(
-    unmatched_tags: impl Iterator<Item = (Tag, usize)>,
-    posts: impl Iterator<Item = index::PageInfo> + 'static,
-) -> impl RenderOnce {
-    owned_html! {
-        div(class="pure-menu pure-menu-horizontal") {
-            form(action="..", method="get", class="pure-menu-item pure-form") {
-                button(type="submit", class="pure-button"){
-                    : "Up"
-                }
-            }
-            : " ";
-            form(action="/", method="get", class="pure-menu-item pure-form") {
-                input(type="hidden", name="edit", value="true");
-                button(type="submit", class="pure-button button-green"){
-                    : "New"
-                }
-            }
-        }
-        ul {
-            @ for tag in unmatched_tags {
-                li {
-                    a(href=format!("./{}/", tag.0)) : format!("{} ({})", tag.0, tag.1)
-                }
-            }
-            @ for post in posts {
-                li {
-                    a(href=format!("./?id={}", post.id)) : post.title
-                }
-            }
-        }
-    }
-}
-
-fn warp_reply_from_render(render: impl RenderOnce) -> Box<dyn warp::Reply> {
+fn warp_reply_from_render(render: impl horrorshow::RenderOnce) -> Box<dyn warp::Reply> {
+    use horrorshow::Template;
     Box::new(warp::reply::html(
         render.into_string().expect("rendering without errors"),
     ))
@@ -334,14 +217,6 @@ async fn handle_get_wrapped(
         .map_err(|e| warp::reject::custom(RejectAnyhow(e)))
 }
 
-fn render_page(page: Option<&page::Parsed>, edit: bool) -> Box<dyn RenderBox> {
-    if edit {
-        Box::new(render_page_editing_view(page)) as Box<dyn RenderBox>
-    } else {
-        Box::new(render_page_view(page.expect("always some"))) as Box<dyn RenderBox>
-    }
-}
-
 async fn handle_get(
     state: Arc<State>,
     path: FullPath,
@@ -360,12 +235,12 @@ async fn handle_get(
 
     if let Some(q_id) = query.id {
         let page = read.get(q_id).await?;
-        return Ok(warp_reply_from_render(render_html_page(render_page(
+        return Ok(warp_reply_from_render(render::html_page(render::page(
             Some(&page),
             query.edit.is_some(),
         ))));
     } else if query.edit.is_some() {
-        return Ok(warp_reply_from_render(render_html_page(render_page(
+        return Ok(warp_reply_from_render(render::html_page(render::page(
             None, true,
         ))));
     }
@@ -377,16 +252,18 @@ async fn handle_get(
     }
     if results.matching_pages.len() == 1 {
         let page = read.get(results.matching_pages[0].id.clone()).await?;
-        Ok(warp_reply_from_render(render_html_page(render_page(
+        Ok(warp_reply_from_render(render::html_page(render::page(
             Some(&page),
             query.edit.is_some(),
         ))))
     } else {
         let compact_results = read.compact_results(results);
-        Ok(warp_reply_from_render(render_html_page(render_post_list(
-            compact_results.tags.into_iter(),
-            compact_results.pages.into_iter(),
-        ))))
+        Ok(warp_reply_from_render(render::html_page(
+            render::post_list(
+                compact_results.tags.into_iter(),
+                compact_results.pages.into_iter(),
+            ),
+        )))
     }
 }
 
