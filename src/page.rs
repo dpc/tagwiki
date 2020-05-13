@@ -31,7 +31,7 @@ pub struct Parsed {
 fn split_headers_and_body(source: &Source) -> (&str, &str) {
     lazy_static! {
         static ref RE: regex::Regex =
-            regex::RegexBuilder::new(r"\A[[:space:]]*<!--+(.*)--+>(.*)\z")
+            regex::RegexBuilder::new(r"\A[[:space:]]*<!--+(.*?)--+>(.*)\z")
                 .multi_line(true)
                 .dot_matches_new_line(true)
                 .build()

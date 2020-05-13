@@ -63,6 +63,7 @@ fn get_rid_of_windows_newlines(s: String) -> String {
 struct GetParams {
     edit: Option<bool>,
     id: Option<String>,
+    q: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -115,6 +116,20 @@ async fn handle_script_js() -> std::result::Result<warp::http::Response<String>,
                 + include_str!("../resources/script.js"),
         )
         .expect("correct response"))
+}
+
+async fn handle_query(
+    query: GetParams,
+) -> std::result::Result<warp::http::Response<&'static str>, warp::Rejection> {
+    let q = "/".to_string()
+        + &query
+            .q
+            .unwrap_or_else(|| String::new())
+            .split(" ")
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join("/");
+    Ok(warp_temporary_redirect_to_get_method(&q))
 }
 
 async fn handle_post_wrapped(
@@ -241,52 +256,71 @@ async fn handle_get(
             path.as_str()
         ))));
     }
+
+    // because of this sucky mega-form, are getting here on enter
+    // (which submits values of all inputs in the form)
+    // to help with it - redirect to the right place, just like
+    // if the user hit the "Search" button
+    if let Some(q) = query.q.as_ref() {
+        return Ok(Box::new(warp_temporary_redirect(&format!(
+            "/_query?q={}",
+            q
+        ))));
+    }
     let tags = path_to_tags(&path);
     let page_state = render::PageState {
         page: None,
         edit: query.edit.is_some(),
         path: path.as_str().to_string(),
+        subtags: vec![],
     };
 
     let read = state.page_store.read().await;
 
-    if let Some(q_id) = query.id {
-        let page = read.get(q_id).await?;
-        return Ok(warp_reply_from_render(render::html_page(render::page(
-            render::PageState {
-                page: Some(page),
-                ..page_state
-            },
-        ))));
-    } else if query.edit.is_some() {
-        return Ok(warp_reply_from_render(render::html_page(render::page(
-            page_state,
-        ))));
-    }
     let results = read.find(tags.as_slice());
     if results.matching_tags != tags {
         return Ok(Box::new(warp_temporary_redirect(
             &("/".to_string() + &results.matching_tags.join("/")),
         )));
     }
-    if results.matching_pages.len() == 1 {
-        let page = read.get(results.matching_pages[0].id.clone()).await?;
-        Ok(warp_reply_from_render(render::html_page(render::page(
-            render::PageState {
-                page: Some(page),
-                ..page_state
-            },
-        ))))
+
+    let (page_id, subtags) = if query.edit.is_some() {
+        (query.id, vec![])
+    } else if results.matching_pages.len() == 1 {
+        (Some(results.matching_pages[0].id.clone()), vec![])
     } else {
-        let compact_results = read.compact_results(results);
-        Ok(warp_reply_from_render(render::html_page(
-            render::post_list(
-                page_state,
-                compact_results.tags.into_iter(),
-                compact_results.pages.into_iter(),
-            ),
-        )))
-    }
+        let compact_results = read.compact_results(&results);
+        if let Some(q_id) = query.id {
+            (Some(q_id), compact_results.tags)
+        } else if compact_results.direct_hit_pages.len() == 1 {
+            (
+                Some(compact_results.direct_hit_pages[0].id.clone()),
+                compact_results.tags,
+            )
+        } else {
+            return Ok(warp_reply_from_render(render::html_page(
+                render::post_list(
+                    page_state,
+                    compact_results.tags.into_iter(),
+                    compact_results.direct_hit_pages.into_iter(),
+                ),
+            )));
+        }
+    };
+
+    let page = if let Some(page_id) = page_id {
+        Some(read.get(page_id).await?)
+    } else {
+        None
+    };
+
+    Ok(warp_reply_from_render(render::html_page(render::page(
+        render::PageState {
+            page,
+            subtags,
+            ..page_state
+        },
+    ))))
 }
 
 async fn start(opts: &cli::Opts) -> Result<()> {
@@ -300,6 +334,9 @@ async fn start(opts: &cli::Opts) -> Result<()> {
     let handler = warp::any()
         .and(warp::path!("_style.css").and_then(handle_style_css))
         .or(warp::path!("_script.js").and_then(handle_script_js))
+        .or(warp::path!("_query")
+            .and(warp::query::<GetParams>())
+            .and_then(handle_query))
         .or(with_state(state.clone())
             .and(warp::path::full())
             .and(warp::query::<GetParams>())

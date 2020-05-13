@@ -43,7 +43,7 @@ pub struct CompactResults {
     // all tags that were not already filtered on
     pub tags: Vec<(Tag, usize)>,
     // all pages that can't be reached by one of the `tags`
-    pub pages: Vec<PageInfo>,
+    pub direct_hit_pages: Vec<PageInfo>,
 }
 
 impl<T> Index<T>
@@ -77,7 +77,7 @@ where
     }
 
     /// Compact the results to a shorter form
-    pub fn compact_results(&self, results: FindResults) -> CompactResults {
+    pub fn compact_results(&self, results: &FindResults) -> CompactResults {
         let matching_tags: HashSet<String> = results.matching_tags.iter().cloned().collect();
         let mut unmatched_tags: HashMap<Tag, usize> = Default::default();
         for page_info in &results.matching_pages {
@@ -88,25 +88,29 @@ where
             }
         }
 
-        let mut pages: Vec<PageInfo> = results
+        let mut direct_hit_pages: Vec<PageInfo> = results
             .matching_pages
-            .into_iter()
+            .iter()
             .filter(|page_info| {
                 self.tags_by_page_id[&page_info.id]
                     .iter()
                     .filter(|page_tag| !matching_tags.contains(page_tag.as_str()))
                     .count()
-                    < 5
+                    == 0
             })
+            .cloned()
             .collect();
 
-        pages.sort_by(|a, b| a.title.cmp(&b.title));
+        direct_hit_pages.sort_by(|a, b| a.title.cmp(&b.title));
 
         let mut tags: Vec<_> = unmatched_tags.into_iter().collect();
 
         tags.sort_by(|a, b| a.1.cmp(&b.1).reverse().then_with(|| a.0.cmp(&b.0)));
 
-        CompactResults { tags, pages }
+        CompactResults {
+            tags,
+            direct_hit_pages,
+        }
     }
 }
 

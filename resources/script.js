@@ -17,13 +17,46 @@ function reliableClickById(id) {
   }
 }
 
+function focusById(id) {
+  const elem = document.getElementById(id);
+  if (elem) {
+    elem.focus();
+  }
+}
+
+function focusAppendToById(id) {
+  const elem = document.getElementById(id);
+  if (elem) {
+    elem.focus();
+    elem.setSelectionRange(elem.value.length, elem.value.length);
+  }
+}
+
+function focusPrependToById(id) {
+  const elem = document.getElementById(id);
+  if (elem) {
+    elem.focus();
+    elem.setSelectionRange(0, 0);
+  }
+}
+function smartFocusEditById(id) {
+  const elem = document.getElementById(id);
+  if (elem) {
+    if (elem.classList.contains("prepend")) {
+      focusPrependToById(id);
+    } else {
+      focusAppendToById(id);
+    }
+  }
+}
+
 // Modified: https://stackoverflow.com/a/35173443/12271202
 // dir: 1 for down, -1 for up
 function indexFocusSwitch(dir) {
-    let indexList = document.getElementById('index');
-    if (indexList) {
+    const parentArea = document.getElementById('page-content');
+    if (parentArea) {
         var focussableElements = 'a:not([disabled])';
-        var focussable = Array.prototype.filter.call(indexList.querySelectorAll(focussableElements),
+        var focussable = Array.prototype.filter.call(parentArea.querySelectorAll(focussableElements),
           function (element) {
               return true;
           }
@@ -37,7 +70,8 @@ function indexFocusSwitch(dir) {
 }
 
 Mousetrap.bind('n', function() {
-  window.location.href = '/?edit=true';
+  // window.location.href = '?edit=true';
+  reliableClickById('new-button');
 });
 
 Mousetrap.bind('e', function() {
@@ -59,12 +93,15 @@ Mousetrap.bind('s', function() {
 
 Mousetrap.bindGlobal('esc', function() {
   let textarea = document.getElementById('source-editor');
+  let queryText = document.getElementById('query-text');
   if (textarea && textarea === document.activeElement) {
     textarea.blur();
     let button = document.getElementById('cancel-button');
     if (button) {
       button.focus();
     }
+  } else if (queryText && queryText === document.activeElement) {
+    queryText.blur();
   } else {
     reliableClickById('cancel-button');
     reliableClickById('up-button');
@@ -91,5 +128,16 @@ Mousetrap.bind(['ctrl+up', 'k'], function() {
   indexFocusSwitch(-1);
 });
 
+Mousetrap.bind(['/'], function() {
+  focusAppendToById('query-text');
+});
+
+Mousetrap.bindGlobal(['alt+/', 'alt+f', 'alt+q'], function() {
+  focusAppendToById('query-text');
+});
+
 // auto-select first element on index pages
 indexFocusSwitch(1);
+
+// if we're editing a page, let's start at the the right placeA
+smartFocusEditById('source-editor');
