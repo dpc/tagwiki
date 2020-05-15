@@ -11,6 +11,7 @@ pub struct PageState {
     pub path: String,
     pub edit: bool,
     pub page: Option<Parsed>,
+    pub original_page_id: Option<crate::page::Id>,
     pub subtags: Vec<(String, usize)>,
 }
 
@@ -37,7 +38,7 @@ pub fn page(page_state: PageState) -> Box<dyn RenderBox> {
         let page_state_clone = page_state.clone();
         let sub_pages = owned_html! {
             @ if !page_state_clone.subtags.is_empty() {
-                h1 { : "Subpages" }
+                h1 { : "Subtags" }
                 ul {
                     @ for tag in &page_state_clone.subtags {
                         li {
@@ -89,6 +90,7 @@ pub fn page_editing_view(page_state: PageState) -> impl RenderOnce {
 pub fn menu(page_state: PageState, subform: Option<Box<dyn RenderBox>>) -> impl RenderOnce {
     let id = page_state.page.map(|p| p.id().to_owned());
     let edit = page_state.edit;
+    let original_page_id = page_state.original_page_id;
     let path_tags: String = page_state
         .path
         .split("/")
@@ -119,7 +121,11 @@ pub fn menu(page_state: PageState, subform: Option<Box<dyn RenderBox>>) -> impl 
                         : " ";
                     }
                 } else {
-                    a(href="..",class="pure-button", id="up-button") { : "Up" }
+                    @ if let Some(_id) = original_page_id {
+                        a(href=".", class="pure-button", id="up-button") { : "Up" }
+                    } else {
+                        a(href="..", class="pure-button", id="up-button") { : "Up" }
+                    }
                     : " ";
                 }
                 @ if edit {
@@ -179,13 +185,16 @@ pub fn post_list(
     owned_html! {
         : menu;
         div(id="page-content") {
-            h1 { : "Subpages" }
+            h1 { : "Pages" }
             ul(id="index") {
                 @ for post in posts {
                     li {
                         a(href=format!("./?id={}", post.id)) : post.title
                     }
                 }
+            }
+            h1 { : "Subtags" }
+            ul(id="index") {
                 @ for tag in unmatched_tags {
                     li {
                         a(href=format!("./{}/", tag.0)) : format!("{} ({})", tag.0, tag.1)

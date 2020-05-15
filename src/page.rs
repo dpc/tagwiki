@@ -126,6 +126,20 @@ fn parse_title(body: &str) -> String {
         .map(|m| m.get(1).expect("a value").as_str().trim().to_string())
         .next()
         .unwrap_or_else(|| "".to_string());
+    let title = if title == "" {
+        lazy_static! {
+            static ref RE: regex::Regex =
+                regex::Regex::new(r"[[:space:]]*(.*?)[\.\n]").expect("correct regex");
+        }
+
+        RE.captures_iter(&body)
+            .map(|m| m.get(1).expect("a value").as_str().trim().to_string())
+            .next()
+            .unwrap_or_else(|| "".to_string())
+    } else {
+        title
+    };
+
     if title == "" {
         "Untitled".to_string()
     } else {

@@ -269,6 +269,7 @@ async fn handle_get(
     }
     let tags = path_to_tags(&path);
     let page_state = render::PageState {
+        original_page_id: query.id.clone(),
         page: None,
         edit: query.edit.is_some(),
         path: path.as_str().to_string(),
@@ -302,7 +303,7 @@ async fn handle_get(
                 render::post_list(
                     page_state,
                     compact_results.tags.into_iter(),
-                    compact_results.direct_hit_pages.into_iter(),
+                    results.matching_pages.into_iter(),
                 ),
             )));
         }
