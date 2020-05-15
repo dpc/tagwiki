@@ -173,7 +173,9 @@ async fn handle_post(
     };
     let page = write.get(post_id.to_owned()).await?;
 
-    let page = page.with_new_source_body(&get_rid_of_windows_newlines(form.get_body()?.to_owned()));
+    let mut page =
+        page.with_new_source_body(&get_rid_of_windows_newlines(form.get_body()?.to_owned()));
+    page.update_modification_time();
 
     write.put(&page).await?;
 

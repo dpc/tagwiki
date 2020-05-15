@@ -108,9 +108,7 @@ impl FsStore {
 
         tokio::task::spawn_blocking(move || -> Result<()> {
             let mut file = std::fs::File::create(&tmp_path)?;
-            file.write_all(b"<!---\n")?;
-            file.write_all(page.headers.all.as_bytes())?;
-            file.write_all(b"\n-->\n")?;
+            file.write_all(page.headers.to_markdown_string().as_bytes())?;
             file.write_all(page.source_body.as_bytes())?;
 
             file.flush()?;

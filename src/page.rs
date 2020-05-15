@@ -1,7 +1,9 @@
 pub mod store;
 
+use crate::util;
 #[allow(unused)]
 use anyhow::Result;
+use chrono::prelude::*;
 use lazy_static::lazy_static;
 use std::collections::HashSet;
 pub use store::{InMemoryStore, Store, StoreMut};
@@ -14,11 +16,13 @@ pub type TagRef<'a> = &'a str;
 pub type IdRef<'a> = &'a str;
 
 const TAGWIKI_PAGE_ID_KEY: &str = "tagwiki-page-id";
+const TAGWIKI_CREATION_TIME_KEY: &str = "tagwiki-creation-time";
+const TAGWIKI_MODIFICATION_TIME_KEY: &str = "tagwiki-modification-time";
 
 #[derive(Debug, Default, Clone)]
 pub struct Source(String);
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct Parsed {
     pub source: Source,
     pub source_body: String,
@@ -50,18 +54,33 @@ fn split_headers_and_body(source: &Source) -> (&str, &str) {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Headers {
     pub id: String,
-    pub all: String,
+    pub creation_time: chrono::DateTime<FixedOffset>,
+    pub modification_time: chrono::DateTime<FixedOffset>,
+    pub other: String,
 }
 
+impl Default for Headers {
+    fn default() -> Self {
+        Self {
+            id: util::random_string(16),
+            creation_time: util::now(),
+            modification_time: util::now(),
+            other: "".into(),
+        }
+    }
+}
 impl Headers {
     fn parse(headers_str: &str, source: &Source) -> Headers {
         let mut id = None;
+        let mut creation = None;
+        let mut modification = None;
+        let mut other = String::new();
 
         for line in headers_str.lines() {
-            match line.split(":").collect::<Vec<_>>().as_slice() {
+            match line.splitn(2, ":").collect::<Vec<_>>().as_slice() {
                 [key, value] => {
                     let key = key.trim();
                     let value = value.trim();
@@ -69,38 +88,62 @@ impl Headers {
                         TAGWIKI_PAGE_ID_KEY => {
                             id = Some(value.to_owned());
                         }
-                        _ => {}
+                        TAGWIKI_CREATION_TIME_KEY => {
+                            let time = chrono::DateTime::<FixedOffset>::parse_from_rfc3339(value);
+                            creation = time.ok();
+                        }
+                        TAGWIKI_MODIFICATION_TIME_KEY => {
+                            let time = chrono::DateTime::<FixedOffset>::parse_from_rfc3339(value);
+                            modification = time.ok();
+                        }
+                        _ => {
+                            other.push_str(line);
+                            other.push_str("\n")
+                        }
                     }
                 }
-                _ => {}
+                _ => {
+                    other.push_str(line);
+                    other.push_str("\n")
+                }
             }
         }
 
-        match id {
-            Some(id) => Self {
-                id,
-                all: headers_str.to_owned(),
-            },
-            None => {
-                let mut hasher = blake2::Blake2b::new();
-                hasher.input(&source.0);
-                let res = hasher.result();
-                let id = hex::encode(&res.as_slice()[0..16]);
+        let id = id.unwrap_or_else(|| {
+            let mut hasher = blake2::Blake2b::new();
+            hasher.input(&source.0);
+            let res = hasher.result();
+            hex::encode(&res.as_slice()[0..16])
+        });
 
-                let mut all = String::new();
-                all.push_str(TAGWIKI_PAGE_ID_KEY);
-                all.push_str(": ");
-                all.push_str(&id);
-                all.push_str("\n");
-                all.push_str(headers_str);
+        let creation: DateTime<chrono::offset::FixedOffset> =
+            creation.unwrap_or_else(|| util::now());
 
-                Self { id, all }
-            }
+        let modification = modification.unwrap_or_else(|| util::now());
+
+        Self {
+            other,
+            id,
+            creation_time: creation,
+            modification_time: modification,
         }
     }
 
     fn to_markdown_string(&self) -> String {
-        "<!---\n".to_string() + &self.all + "\n-->\n"
+        "<!---\n".to_string()
+            + &format!("{}: {}\n", TAGWIKI_PAGE_ID_KEY, self.id)
+            + &format!(
+                "{}: {}\n",
+                TAGWIKI_CREATION_TIME_KEY,
+                self.creation_time.to_rfc3339()
+            )
+            + &format!(
+                "{}: {}\n",
+                TAGWIKI_MODIFICATION_TIME_KEY,
+                self.modification_time.to_rfc3339()
+            )
+            + &self.other
+            + "-->\n"
     }
 }
 
@@ -184,6 +227,10 @@ impl Parsed {
             tags: tags.into_iter().collect(),
             title,
         }
+    }
+
+    pub fn update_modification_time(&mut self) {
+        self.headers.modification_time = util::now();
     }
 
     pub fn with_new_source_body(&self, new_body_source: &str) -> Self {
