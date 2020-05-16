@@ -35,8 +35,13 @@ that I don't have to pre-plan or carefully maintain.
 * uses Markdown for content,
 * brutally simple,
 * fast,
-* excelent support for keyboard navigation,
+* excellent support for keyboard navigation,
 * keeps pages as markdown files in a directory,
+* convenient logs/journals/note taking
+
+### How it looks
+
+![tagwiki screenshot](https://i.imgur.com/0UrHCoI.png)
 
 ### Under the hood
 
@@ -44,7 +49,6 @@ that I don't have to pre-plan or carefully maintain.
 
 ### Feature ideas:
 
-* "journal mode" - for easy note taking
 * support public-facing setups (authentication, permissions, and so on)
 
 ### Installing & running
