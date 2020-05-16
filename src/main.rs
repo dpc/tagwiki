@@ -304,7 +304,7 @@ async fn handle_get(
             return Ok(warp_reply_from_render(render::html_page(
                 render::post_list(
                     page_state,
-                    compact_results.tags.into_iter(),
+                    compact_results.tags,
                     results.matching_pages.into_iter(),
                 ),
             )));

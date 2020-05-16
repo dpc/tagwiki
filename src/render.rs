@@ -2,6 +2,8 @@ use horrorshow::helper::doctype;
 use horrorshow::prelude::*;
 use horrorshow::{box_html, owned_html};
 
+use itertools::Itertools;
+
 use crate::index;
 use crate::page::{Parsed, Tag};
 
@@ -178,7 +180,7 @@ pub fn page_view(page_state: PageState, sub_pages: impl RenderOnce) -> impl Rend
 
 pub fn post_list(
     page_state: PageState,
-    unmatched_tags: impl Iterator<Item = (Tag, usize)>,
+    unmatched_tags: Vec<(Tag, usize)>,
     posts: impl Iterator<Item = index::PageInfo> + 'static,
 ) -> impl RenderOnce {
     let menu = menu(page_state.clone(), None);
@@ -186,18 +188,23 @@ pub fn post_list(
         : menu;
         div(id="page-content") {
             h1 { : "Pages" }
-            ul(id="index") {
-                @ for post in posts {
-                    li {
-                        a(href=format!("./?id={}", post.id)) : post.title
+            @ for (date, group) in posts.group_by(|info| info.headers.creation_time.date()) {
+                h3 { : date.format("%A, %Y-%m-%d").to_string() }
+                ul {
+                    @ for post in group {
+                        li {
+                            a(href=format!("./?id={}", post.id)) : post.title
+                        }
                     }
                 }
             }
-            h1 { : "Subtags" }
-            ul(id="index") {
-                @ for tag in unmatched_tags {
-                    li {
-                        a(href=format!("./{}/", tag.0)) : format!("{} ({})", tag.0, tag.1)
+            @ if !unmatched_tags.is_empty() {
+                h1 { : "Subtags" }
+                ul(id="index") {
+                    @ for tag in unmatched_tags {
+                        li {
+                            a(href=format!("./{}/", tag.0)) : format!("{} ({})", tag.0, tag.1)
+                        }
                     }
                 }
             }

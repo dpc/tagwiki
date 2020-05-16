@@ -540,6 +540,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "itertools"
+version = "0.4.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4a9b56eb56058f43dc66e58f40a214b2ccbc9f3df51861b63d51dec7b65bc3f"
+
+[[package]]
 name = "itoa"
 version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1232,6 +1238,7 @@ dependencies = [
  "env_logger",
  "hex",
  "horrorshow",
+ "itertools",
  "lazy_static",
  "log 0.4.8",
  "pulldown-cmark",

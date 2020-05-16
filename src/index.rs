@@ -14,7 +14,7 @@ use std::collections::{HashMap, HashSet};
 pub struct Index<T> {
     page_ids_by_tag: HashMap<String, HashSet<Id>>,
     tags_by_page_id: HashMap<Id, HashSet<Tag>>,
-    title_by_page_id: HashMap<Id, String>,
+    page_info_by_page_id: HashMap<Id, PageInfo>,
     store: T,
 }
 
@@ -23,6 +23,7 @@ pub struct Index<T> {
 pub struct PageInfo {
     pub id: Id,
     pub title: String,
+    pub headers: page::Headers,
 }
 
 /// Results of tag query lookup
@@ -54,7 +55,7 @@ where
         let mut s = Index {
             page_ids_by_tag: Default::default(),
             tags_by_page_id: Default::default(),
-            title_by_page_id: Default::default(),
+            page_info_by_page_id: Default::default(),
             store,
         };
 
@@ -126,10 +127,7 @@ impl<T> Index<T> {
                 .tags_by_page_id
                 .keys()
                 .cloned()
-                .map(|id| PageInfo {
-                    id: id.clone(),
-                    title: self.title_by_page_id[&id].clone(),
-                })
+                .map(|id| self.page_info_by_page_id[&id].clone())
                 .collect();
         }
 
@@ -142,10 +140,7 @@ impl<T> Index<T> {
                 if let Some(ids) = &self.page_ids_by_tag.get(*tag) {
                     matching_pages = ids
                         .iter()
-                        .map(|id| PageInfo {
-                            id: id.to_owned(),
-                            title: self.title_by_page_id[id].clone(),
-                        })
+                        .map(|id| self.page_info_by_page_id[id].clone())
                         .collect();
                     matching_tags.push(tag.to_string())
                 } else {
@@ -175,6 +170,8 @@ impl<T> Index<T> {
                 }
             }
         }
+
+        matching_pages.sort_unstable_by_key(|info| std::cmp::Reverse(info.headers.creation_time));
         FindResults {
             matching_pages,
             matching_tags,
@@ -190,8 +187,14 @@ impl<T> Index<T> {
         }
         self.tags_by_page_id
             .insert(page.id().to_owned(), page.tags.clone());
-        self.title_by_page_id
-            .insert(page.id().to_owned(), page.title.clone());
+        self.page_info_by_page_id.insert(
+            page.id().to_owned(),
+            PageInfo {
+                id: page.id().to_owned(),
+                title: page.title.clone(),
+                headers: page.headers.clone(),
+            },
+        );
     }
 
     fn clean_data_for_page(&mut self, id: Id) {
@@ -206,7 +209,7 @@ impl<T> Index<T> {
                 .map(|set| set.remove(&id));
         }
         self.tags_by_page_id.remove(&id);
-        self.title_by_page_id.remove(&id);
+        self.page_info_by_page_id.remove(&id);
     }
 }
 
