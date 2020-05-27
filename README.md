@@ -57,5 +57,5 @@ Like any Rust program. `cargo install --git https://github.com/dpc/tagwiki`.
 
 To run `tagwiki <markdown_files_directory>`
 
-See `docs` directory for more user-documentation. Pages inside it are
-tagwiki content, so you can try `tagwiki ./docs` try things out.
+See [`docs`](https://github.com/dpc/tagwiki/tree/master/docs) directory for more user-documentation. Pages inside it are
+tagwiki content, so you can use `tagwiki ./docs` to try things out.
