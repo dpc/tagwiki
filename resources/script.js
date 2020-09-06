@@ -130,6 +130,7 @@ Mousetrap.bind(['ctrl+up', 'k'], function() {
 
 Mousetrap.bind(['/'], function() {
   focusAppendToById('query-text');
+  return false;
 });
 
 Mousetrap.bindGlobal(['alt+/', 'alt+f', 'alt+q'], function() {
