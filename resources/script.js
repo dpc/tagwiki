@@ -50,22 +50,39 @@ function smartFocusEditById(id) {
   }
 }
 
+function findFocusableElements(parentArea) {
+  const focussableElements = 'a:not([disabled])';
+  return Array.prototype.filter.call(parentArea.querySelectorAll(focussableElements),
+    function (element) {
+        return true;
+    }
+  );
+}
+
 // Modified: https://stackoverflow.com/a/35173443/12271202
 // dir: 1 for down, -1 for up
 function indexFocusSwitch(dir) {
     const parentArea = document.getElementById('page-content');
     if (parentArea) {
-        var focussableElements = 'a:not([disabled])';
-        var focussable = Array.prototype.filter.call(parentArea.querySelectorAll(focussableElements),
-          function (element) {
-              return true;
-          }
-        );
+        const focussable = findFocusableElements(parentArea);
         var index = focussable.indexOf(document.activeElement);
-        if(focussable.length > 0) {
+        if (focussable.length > 0) {
            var nextElement = focussable[(index + dir + focussable.length) % focussable.length] || focussable[0];
            nextElement.focus();
         }                    
+    }
+}
+
+// dir: -1 start, 1 end
+function indexFocusStartOrEnd(dir) {
+    const parentArea = document.getElementById('page-content');
+    if (parentArea) {
+        const focussable = findFocusableElements(parentArea);
+        var index = focussable.indexOf(document.activeElement);
+        if (focussable.length > 0) {
+           var nextElement = focussable[dir === -1 ? 0 : focussable.length - 1] || focussable[0];
+           nextElement.focus();
+        }
     }
 }
 
@@ -120,12 +137,20 @@ Mousetrap.bind(['ctrl+right', 'l'], function() {
   }
 });
 
+Mousetrap.bind(['ctrl+up', 'k'], function() {
+  indexFocusSwitch(-1);
+});
+
 Mousetrap.bind(['ctrl+down', 'j'], function() {
   indexFocusSwitch(1);
 });
 
-Mousetrap.bind(['ctrl+up', 'k'], function() {
-  indexFocusSwitch(-1);
+Mousetrap.bindGlobal(['g k'], function() {
+  indexFocusStartOrEnd(-1);
+});
+
+Mousetrap.bindGlobal(['g j'], function() {
+  indexFocusStartOrEnd(1);
 });
 
 Mousetrap.bind(['/'], function() {
