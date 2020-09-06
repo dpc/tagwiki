@@ -111,8 +111,8 @@ impl Headers {
 
         let id = id.unwrap_or_else(|| {
             let mut hasher = blake2::Blake2b::new();
-            hasher.input(&source.0);
-            let res = hasher.result();
+            hasher.update(&source.0);
+            let res = hasher.finalize();
             hex::encode(&res.as_slice()[0..16])
         });
 
